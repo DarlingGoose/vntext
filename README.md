@@ -387,15 +387,21 @@ vntext install-game --print /path/to/game
 Run a game by name:
 
 ```bash
-    vntext run-game "testname"
+    vntext run-game "testname" 
 ```
 
 
-Run the interactive selector:
+Run the interactive selector, and tail the logs,
+
+- *sync* will keep this application and the game in sync,   
+  -  endgame -> kill vntext
+  - stop vntext -> kill game
 
 ```bash
-vntext run-game
+vntext run-game --sync --follow 
 ```
+
+
 
 Check generated logs:
 

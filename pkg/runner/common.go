@@ -67,6 +67,7 @@ func processStatusFromCmd(cmd *exec.Cmd, msg string) *ProcessStatus {
 		PID:     pid,
 		Message: msg,
 		Status:  StatusRunning,
+		cmd:     cmd,
 	}
 }
 

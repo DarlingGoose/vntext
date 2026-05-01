@@ -1,2 +1,4 @@
 .idea
 vendor
+vntext
+pkg/engine/kirikiri2/log/log

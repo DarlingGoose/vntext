@@ -3,6 +3,7 @@ package runner
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"syscall"
 
 	"github.com/DarlingGoose/vntext/pkg/game"
@@ -22,6 +23,35 @@ type ProcessStatus struct {
 	PID     int    `json:"pid"`
 	Message string `json:"message"`
 	Status  int    `json:"status"`
+
+	cmd *exec.Cmd
+}
+
+func (p *ProcessStatus) Wait() error {
+	if p == nil || p.cmd == nil {
+		return nil
+	}
+	return p.cmd.Wait()
+}
+
+func (p *ProcessStatus) Kill() error {
+	if p == nil {
+		return nil
+	}
+
+	if p.cmd != nil && p.cmd.Process != nil {
+		return p.cmd.Process.Kill()
+	}
+
+	if p.PID > 0 {
+		proc, err := os.FindProcess(p.PID)
+		if err != nil {
+			return err
+		}
+		return proc.Kill()
+	}
+
+	return nil
 }
 
 const (

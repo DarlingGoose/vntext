@@ -65,11 +65,12 @@ func LoadInstalledGames(configDirs ...string) ([]*game.Game, error) {
 		foundGames, _ := loadInstalledGames(dir)
 
 		for _, f := range foundGames {
-			if _, ok := d[f.GamePath]; ok {
+			name := util.SanitizeName(f.Name)
+			if _, ok := d[name]; ok {
 				continue
 			}
 			games = append(games, f)
-			d[f.GamePath] = struct{}{}
+			d[name] = struct{}{}
 		}
 	}
 

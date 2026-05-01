@@ -51,6 +51,7 @@ func (e *Engine) prefixPathFor(name string) string {
 
 	return filepath.Join(root, util.SanitizeName(name))
 }
+
 func defaultPrefixRoot() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "vntext", "prefixes")

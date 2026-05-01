@@ -18,8 +18,6 @@ const (
 	engineName = "rpgmaker"
 
 	pluginName = "WGLClipboardText"
-
-	defaultLocale = "ja_JP.UTF-8"
 )
 
 //go:embed rpgmakerPlugin.js

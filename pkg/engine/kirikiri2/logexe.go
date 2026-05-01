@@ -9,9 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
-	"github.com/DarlingGoose/vntext/pkg/textfile"
 	"github.com/DarlingGoose/vntext/pkg/util"
 )
 
@@ -81,12 +79,4 @@ func (e *Engine) installLogExe(ctx context.Context, gameRoot string) error {
 	}
 
 	return nil
-}
-
-func isTextHookInstalled(startupPath string) bool {
-	tf, err := textfile.Read(startupPath)
-	if err != nil {
-		return false
-	}
-	return strings.Contains(tf.Text, `Scripts.execStorage("text_logger.tjs");`)
 }

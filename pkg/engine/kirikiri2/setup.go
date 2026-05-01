@@ -23,14 +23,6 @@ type PreparedGame struct {
 	Profile      KiriKiriProfile
 }
 
-func (e *Engine) prepareGame(ctx context.Context, inputPath string) (*game.Game, error) {
-	prepared, err := e.EnsureReady(ctx, inputPath)
-	if err != nil {
-		return nil, err
-	}
-	return prepared.Game, nil
-}
-
 // EnsureReady is the thing to call before doing anything else.
 // It normalizes installer folders, loose game folders, and already-installed dirs
 // into a runnable/staged game.Game.

@@ -1,7 +1,6 @@
 package game
 
 import (
-	"path/filepath"
 	"time"
 )
 
@@ -48,13 +47,4 @@ type Game struct {
 type EnvVar struct {
 	Key   string
 	Value string
-}
-
-func (c *Game) driveCPath() string {
-	switch c.Runner {
-	case RunnerProton:
-		return filepath.Join(c.PrefixPath, "pfx", "drive_c")
-	default:
-		return filepath.Join(c.PrefixPath, "drive_c")
-	}
 }

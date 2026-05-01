@@ -55,12 +55,3 @@ func cleanWineEnv(env []string) []string {
 
 	return out
 }
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
-}

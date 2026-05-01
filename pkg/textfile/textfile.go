@@ -116,7 +116,7 @@ func Decode(raw []byte) (FileStyle, string, error) {
 		Newline: detectNewline(raw),
 	}
 
-	textRaw := raw
+	var textRaw []byte
 
 	switch {
 	case bytes.HasPrefix(raw, []byte{0xEF, 0xBB, 0xBF}):

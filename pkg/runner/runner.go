@@ -80,6 +80,10 @@ func (r *AutoRunner) Run(g *game.Game) (*ProcessStatus, error) {
 }
 
 func (r *AutoRunner) RunBackground(g *game.Game) (*ProcessStatus, error) {
+	if p, err := r.IsRunning(g); err == nil && p != nil && p.Status == StatusRunning {
+		return p, IsAlreadyRunning
+	}
+
 	return r.runnerFor(g).RunBackground(g)
 }
 

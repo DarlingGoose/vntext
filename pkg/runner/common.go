@@ -87,6 +87,9 @@ func isPIDRunning(pid int) bool {
 }
 
 func alreadyRunningByPIDFile(g *game.Game) (*ProcessStatus, error) {
+	if process, _ := FindRunningGameProcess(g); process != nil {
+		return process, nil
+	}
 	pid, ok := readPIDFile(g)
 	if !ok {
 		return nil, IsNotRunning

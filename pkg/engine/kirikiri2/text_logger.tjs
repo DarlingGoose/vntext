@@ -1,0 +1,503 @@
+// text_logger.tjs
+// KiriKiri 2 / old TJS-safe logger.
+// No TextWriteStream.
+// No closures.
+// Logs to savedata/krkr.console.log through Debug.message.
+//
+// Load from startup.tjs:
+//   Scripts.execStorage("text_logger.tjs");
+
+var __TEXT_LOGGER_SHOW_POPUP = true;
+var __TEXT_LOGGER_INSTALLED = false;
+
+// ------------------------------------------------------------
+// Basic helpers
+// ------------------------------------------------------------
+
+
+
+var __tl_text_buffer = "";
+
+function appendTextLog(text)
+{
+    text = __tl_to_string(text);
+
+    if (__tl_trim(text) == "")
+        return true;
+
+    // log.exe should be built with:
+    // GOOS=windows GOARCH=386 go build -ldflags="-H=windowsgui" -o log.exe main.go
+    var ok = System.shellExecute("log.exe", text);
+    return ok;
+}
+
+function __tl_is_probably_text(s)
+{
+    s = __tl_to_string(s);
+
+    if (__tl_trim(s) == "")
+        return false;
+
+    // Ignore object dumps / noisy internals.
+    if (s.indexOf("(object ") == 0)
+        return false;
+
+    // Ignore obvious script/control expressions.
+    if (s.indexOf("f.") == 0) return false;
+    if (s.indexOf("sf.") == 0) return false;
+    if (s.indexOf("tf.") == 0) return false;
+    if (s.indexOf("mp.") == 0) return false;
+    if (s.indexOf("kag.") >= 0) return false;
+
+    return true;
+}
+
+function __tl_add_text(s)
+{
+    s = __tl_clean(s);
+
+    if (!__tl_is_probably_text(s))
+        return;
+
+    __tl_text_buffer += s;
+}
+
+function __tl_flush_text(reason)
+{
+    var text = __tl_trim(__tl_text_buffer);
+    __tl_text_buffer = "";
+
+    if (text == "")
+        return;
+
+    Debug.message("[text_logger][line." + reason + "] " + text);
+
+    try
+    {
+        // Raw text only: no [text_logger], no kind, no translation.
+        appendTextLog(text);
+    }
+    catch (e)
+    {
+        Debug.message("[text_logger] appendTextLog failed: " + e.message);
+    }
+}
+
+
+function __tl_to_string(v)
+{
+    if (v === void) return "";
+    return "" + v;
+}
+
+function __tl_trim(s)
+{
+    s = __tl_to_string(s);
+    s = s.replace(/^\s+/, "");
+    s = s.replace(/\s+$/, "");
+    return s;
+}
+
+function __tl_clean(s)
+{
+    s = __tl_to_string(s);
+    s = s.replace(/\r/g, "");
+    s = s.replace(/\n/g, "\\n");
+    return s;
+}
+
+var __TEXT_LOGGER_COUNT = 0;
+
+function __tl_log(kind, text)
+{
+    text = __tl_clean(text);
+
+    if (__tl_trim(text) == "")
+        return;
+
+    var line = "[text_logger][" + kind + "] " + text;
+
+    Debug.message(line);
+
+    try
+    {
+        appendTextLog(line);
+    }
+    catch (e)
+    {
+        Debug.message("[text_logger] appendTextLog failed: " + e.message);
+    }
+}
+
+// ------------------------------------------------------------
+// Param logging
+// ------------------------------------------------------------
+
+function __tl_log_key(kind, params, key)
+{
+    try
+    {
+        if (params[key] !== void)
+        {
+            __tl_log(kind + "." + key, params[key]);
+            return true;
+        }
+    }
+    catch (e)
+    {
+    }
+
+    return false;
+}
+
+function __tl_log_params(kind, params)
+{
+    if (params === void)
+    {
+        __tl_log(kind, "(params void)");
+        return;
+    }
+
+    var found = false;
+
+    // Common KAG params.
+    if (__tl_log_key(kind, params, "text")) found = true;
+    if (__tl_log_key(kind, params, "ch")) found = true;
+    if (__tl_log_key(kind, params, "caption")) found = true;
+    if (__tl_log_key(kind, params, "label")) found = true;
+    if (__tl_log_key(kind, params, "name")) found = true;
+    if (__tl_log_key(kind, params, "value")) found = true;
+    if (__tl_log_key(kind, params, "hint")) found = true;
+    if (__tl_log_key(kind, params, "message")) found = true;
+    if (__tl_log_key(kind, params, "str")) found = true;
+    if (__tl_log_key(kind, params, "exp")) found = true;
+    if (__tl_log_key(kind, params, "title")) found = true;
+    if (__tl_log_key(kind, params, "target")) found = true;
+    if (__tl_log_key(kind, params, "storage")) found = true;
+    if (__tl_log_key(kind, params, "layer")) found = true;
+    if (__tl_log_key(kind, params, "page")) found = true;
+    if (__tl_log_key(kind, params, "time")) found = true;
+
+    // Always try a raw-ish dump too.
+    // Some old TJS objects stringify badly, so this is guarded.
+    try
+    {
+        __tl_log(kind + ".params", params);
+    }
+    catch (e)
+    {
+    }
+
+    if (!found)
+    {
+        __tl_log(kind, "(no known params)");
+    }
+}
+
+// ------------------------------------------------------------
+// Original caller
+// ------------------------------------------------------------
+
+function __tl_call_original(tagName, params)
+{
+    return kag.tagHandlers["__text_logger_original_" + tagName](params);
+}
+
+// ------------------------------------------------------------
+// Explicit wrappers
+// Do NOT use closures here. Old TJS loses captured vars.
+// ------------------------------------------------------------
+
+
+function __tl_wrap_ch(params)
+{
+    try
+    {
+        if (params !== void && params["text"] !== void)
+            __tl_add_text(params["text"]);
+        else if (params !== void && params["ch"] !== void)
+            __tl_add_text(params["ch"]);
+    }
+    catch (e)
+    {
+        Debug.message("[text_logger] ch log failed");
+    }
+
+    return __tl_call_original("ch", params);
+}
+
+function __tl_wrap_r(params)
+{
+    try
+    {
+        // Line break inside same message.
+        __tl_add_text("\n");
+    }
+    catch (e)
+    {
+        Debug.message("[text_logger] r log failed");
+    }
+
+    return __tl_call_original("r", params);
+}
+
+function __tl_wrap_l(params)
+{
+    try
+    {
+        // Usually click-wait / line break. Flush current line.
+        __tl_flush_text("l");
+    }
+    catch (e)
+    {
+        Debug.message("[text_logger] l log failed");
+    }
+
+    return __tl_call_original("l", params);
+}
+
+function __tl_wrap_p(params)
+{
+    try
+    {
+        // Page break / end of message. Flush current line.
+        __tl_flush_text("p");
+    }
+    catch (e)
+    {
+        Debug.message("[text_logger] p log failed");
+    }
+
+    return __tl_call_original("p", params);
+}
+
+function __tl_wrap_er(params)
+{
+    try { __tl_log_params("er", params); } catch (e) { Debug.message("[text_logger] er log failed"); }
+    return __tl_call_original("er", params);
+}
+
+function __tl_wrap_cm(params)
+{
+    try { __tl_log_params("cm", params); } catch (e) { Debug.message("[text_logger] cm log failed"); }
+    return __tl_call_original("cm", params);
+}
+
+function __tl_wrap_ct(params)
+{
+    try { __tl_log_params("ct", params); } catch (e) { Debug.message("[text_logger] ct log failed"); }
+    return __tl_call_original("ct", params);
+}
+
+function __tl_wrap_button(params)
+{
+    try { __tl_log_params("button", params); } catch (e) { Debug.message("[text_logger] button log failed"); }
+    return __tl_call_original("button", params);
+}
+
+function __tl_wrap_link(params)
+{
+    try { __tl_log_params("link", params); } catch (e) { Debug.message("[text_logger] link log failed"); }
+    return __tl_call_original("link", params);
+}
+
+function __tl_wrap_glink(params)
+{
+    try { __tl_log_params("glink", params); } catch (e) { Debug.message("[text_logger] glink log failed"); }
+    return __tl_call_original("glink", params);
+}
+
+function __tl_wrap_select(params)
+{
+    try { __tl_log_params("select", params); } catch (e) { Debug.message("[text_logger] select log failed"); }
+    return __tl_call_original("select", params);
+}
+
+function __tl_wrap_seladd(params)
+{
+    try { __tl_log_params("seladd", params); } catch (e) { Debug.message("[text_logger] seladd log failed"); }
+    return __tl_call_original("seladd", params);
+}
+
+function __tl_wrap_selopt(params)
+{
+    try { __tl_log_params("selopt", params); } catch (e) { Debug.message("[text_logger] selopt log failed"); }
+    return __tl_call_original("selopt", params);
+}
+
+function __tl_wrap_mselect(params)
+{
+    try { __tl_log_params("mselect", params); } catch (e) { Debug.message("[text_logger] mselect log failed"); }
+    return __tl_call_original("mselect", params);
+}
+
+function __tl_wrap_mseladd(params)
+{
+    try { __tl_log_params("mseladd", params); } catch (e) { Debug.message("[text_logger] mseladd log failed"); }
+    return __tl_call_original("mseladd", params);
+}
+
+function __tl_wrap_mselopt(params)
+{
+    try { __tl_log_params("mselopt", params); } catch (e) { Debug.message("[text_logger] mselopt log failed"); }
+    return __tl_call_original("mselopt", params);
+}
+
+function __tl_wrap_checkbox(params)
+{
+    try { __tl_log_params("checkbox", params); } catch (e) { Debug.message("[text_logger] checkbox log failed"); }
+    return __tl_call_original("checkbox", params);
+}
+
+function __tl_wrap_edit(params)
+{
+    try { __tl_log_params("edit", params); } catch (e) { Debug.message("[text_logger] edit log failed"); }
+    return __tl_call_original("edit", params);
+}
+
+function __tl_wrap_glyph(params)
+{
+    try { __tl_log_params("glyph", params); } catch (e) { Debug.message("[text_logger] glyph log failed"); }
+    return __tl_call_original("glyph", params);
+}
+
+function __tl_wrap_jump(params)
+{
+    try { __tl_log_params("jump", params); } catch (e) { Debug.message("[text_logger] jump log failed"); }
+    return __tl_call_original("jump", params);
+}
+
+function __tl_wrap_call(params)
+{
+    try { __tl_log_params("call", params); } catch (e) { Debug.message("[text_logger] call log failed"); }
+    return __tl_call_original("call", params);
+}
+
+function __tl_wrap_return(params)
+{
+    try { __tl_log_params("return", params); } catch (e) { Debug.message("[text_logger] return log failed"); }
+    return __tl_call_original("return", params);
+}
+
+function __tl_wrap_eval(params)
+{
+    try { __tl_log_params("eval", params); } catch (e) { Debug.message("[text_logger] eval log failed"); }
+    return __tl_call_original("eval", params);
+}
+
+function __tl_wrap_image(params)
+{
+    try { __tl_log_params("image", params); } catch (e) { Debug.message("[text_logger] image log failed"); }
+    return __tl_call_original("image", params);
+}
+
+function __tl_wrap_playse(params)
+{
+    try { __tl_log_params("playse", params); } catch (e) { Debug.message("[text_logger] playse log failed"); }
+    return __tl_call_original("playse", params);
+}
+
+function __tl_wrap_playbgm(params)
+{
+    try { __tl_log_params("playbgm", params); } catch (e) { Debug.message("[text_logger] playbgm log failed"); }
+    return __tl_call_original("playbgm", params);
+}
+
+function __tl_wrap_wait(params)
+{
+    try { __tl_log_params("wait", params); } catch (e) { Debug.message("[text_logger] wait log failed"); }
+    return __tl_call_original("wait", params);
+}
+
+// ------------------------------------------------------------
+// Install helpers
+// ------------------------------------------------------------
+
+function __tl_install_tag(tagName, wrapper)
+{
+    if (kag === void) return false;
+    if (kag.tagHandlers === void) return false;
+    if (kag.tagHandlers[tagName] === void) return false;
+
+    var hooked = "__text_logger_hooked_" + tagName;
+    var original = "__text_logger_original_" + tagName;
+
+    try
+    {
+        if (kag.tagHandlers[hooked])
+            return true;
+    }
+    catch (e)
+    {
+    }
+
+    kag.tagHandlers[original] = kag.tagHandlers[tagName];
+    kag.tagHandlers[tagName] = wrapper;
+    kag.tagHandlers[hooked] = true;
+
+    Debug.message("[text_logger] hooked " + tagName);
+    return true;
+}
+
+function __tl_try_hook_taghandlers()
+{
+    if (kag === void) return false;
+    if (kag.tagHandlers === void) return false;
+
+    // Text-ish / message flow.
+
+    __tl_install_tag("ch", __tl_wrap_ch);
+    __tl_install_tag("r", __tl_wrap_r);
+    __tl_install_tag("l", __tl_wrap_l);
+    __tl_install_tag("p", __tl_wrap_p);
+
+
+    // Choices / UI.
+
+    return true;
+}
+
+function __tl_install()
+{
+    if (__TEXT_LOGGER_INSTALLED)
+        return true;
+
+    if (!__tl_try_hook_taghandlers())
+        return false;
+
+    __TEXT_LOGGER_INSTALLED = true;
+
+    Debug.message("[text_logger] installed");
+    __tl_log("system", "text_logger installed");
+
+    return true;
+}
+
+// ------------------------------------------------------------
+// Startup
+// ------------------------------------------------------------
+System.shellExecute("log.exe", "[new session]");
+
+if (__TEXT_LOGGER_SHOW_POPUP)
+{
+    System.inform("text_logger loaded");
+}
+
+if (!__tl_install())
+{
+    Debug.message("[text_logger] waiting for kag.tagHandlers...");
+
+    var __tl_timer = new Timer();
+    __tl_timer.interval = 100;
+
+    __tl_timer.onTimer = function()
+    {
+        if (__tl_install())
+        {
+            __tl_timer.enabled = false;
+            Debug.message("[text_logger] timer stopped");
+        }
+    };
+
+    __tl_timer.enabled = true;
+}

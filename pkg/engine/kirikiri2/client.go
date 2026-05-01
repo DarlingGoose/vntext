@@ -135,6 +135,8 @@ func (e *Engine) IsEngine(dir string) bool {
 
 	if !info.IsDir() {
 		root = filepath.Dir(root)
+		profile := DetectKiriKiriProfileShallow(root)
+		return profile.IsKiriKiri
 	}
 
 	profile := DetectKiriKiriProfile(root)

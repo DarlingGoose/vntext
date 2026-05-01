@@ -58,6 +58,17 @@ func resolveProjectRoot(inputPath string) (string, string, error) {
 	return "", "", fmt.Errorf("could not find an RPG Maker MV/MZ project under %s", resolvedPath)
 }
 
+func findExecutableForInput(resolvedPath string, info os.FileInfo, projectRoot string) (string, error) {
+	if !info.IsDir() {
+		if !util.IsExeFile(resolvedPath) {
+			return "", fmt.Errorf("path must be a directory or .exe file: %s", resolvedPath)
+		}
+		return resolvedPath, nil
+	}
+
+	return findExecutable(projectRoot)
+}
+
 func findExecutable(projectRoot string) (string, error) {
 	candidates := []string{
 		filepath.Join(projectRoot, "Game.exe"),

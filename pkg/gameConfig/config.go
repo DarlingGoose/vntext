@@ -1,6 +1,7 @@
 package gameConfig
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/engine/auto"
 	"github.com/DarlingGoose/vntext/pkg/game"
-	"github.com/DarlingGoose/vntext/pkg/util"
 )
 
 func InstallGame(inputPath string, installHook bool, configDir string) (*game.Game, engine.Engine, error) {
@@ -25,7 +25,7 @@ func InstallGame(inputPath string, installHook bool, configDir string) (*game.Ga
 		return nil, nil, fmt.Errorf("resolve game path: %w", err)
 	}
 
-	eng, err := auto.SelectEngine(resolvedPath)
+	eng, err := auto.SelectOrInstallEngine(context.Background(), inputPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -43,10 +43,6 @@ func InstallGame(inputPath string, installHook bool, configDir string) (*game.Ga
 	output := strings.TrimSpace(configDir)
 	if output == "" {
 		output = DefaultGameConfigPath(g)
-	}
-	
-	if !util.IsDir(output) {
-		return nil, nil, errors.New("invalid configDir, must be a directory")
 	}
 
 	if err := WriteGameConfig(output, g); err != nil {

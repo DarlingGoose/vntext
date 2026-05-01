@@ -44,7 +44,12 @@ func (e *Engine) EnsureReady(ctx context.Context, inputPath string) (*PreparedGa
 		sourceRoot = filepath.Dir(resolvedPath)
 	}
 
-	profile := DetectKiriKiriProfile(sourceRoot)
+	var profile KiriKiriProfile
+	if !info.IsDir() {
+		profile = DetectKiriKiriProfileShallow(sourceRoot)
+	} else {
+		profile = DetectKiriKiriProfile(sourceRoot)
+	}
 
 	if !profile.IsKiriKiri {
 		return nil, fmt.Errorf("not a KiriKiri2/KAG game: %s", resolvedPath)

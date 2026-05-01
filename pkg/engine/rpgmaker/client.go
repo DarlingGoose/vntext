@@ -49,10 +49,6 @@ func (e *Engine) InstallGame(dir string) (*game.Game, error) {
 		return nil, err
 	}
 
-	exe, err := findExecutable(projectRoot)
-	if err != nil {
-		return nil, err
-	}
 	resolvedPath, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve path: %w", err)
@@ -60,6 +56,11 @@ func (e *Engine) InstallGame(dir string) (*game.Game, error) {
 	info, err := os.Stat(resolvedPath)
 	if err != nil {
 		return nil, fmt.Errorf("stat path: %w", err)
+	}
+
+	exe, err := findExecutableForInput(resolvedPath, info, projectRoot)
+	if err != nil {
+		return nil, err
 	}
 	name := util.DeriveGameName(projectRoot, exe, info.IsDir())
 	prefixPath := e.prefixPathFor(name)

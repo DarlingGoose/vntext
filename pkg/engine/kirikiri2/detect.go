@@ -19,6 +19,14 @@ type KiriKiriProfile struct {
 }
 
 func DetectKiriKiriProfile(root string) KiriKiriProfile {
+	return detectKiriKiriProfile(root, true)
+}
+
+func DetectKiriKiriProfileShallow(root string) KiriKiriProfile {
+	return detectKiriKiriProfile(root, false)
+}
+
+func detectKiriKiriProfile(root string, recursive bool) KiriKiriProfile {
 	var p KiriKiriProfile
 
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -30,6 +38,9 @@ func DetectKiriKiriProfile(root string) KiriKiriProfile {
 		lower := strings.ToLower(name)
 
 		if d.IsDir() {
+			if !recursive && path != root {
+				return filepath.SkipDir
+			}
 			switch lower {
 			case ".git", "node_modules", "__macosx":
 				return filepath.SkipDir
@@ -78,17 +89,20 @@ func DetectKiriKiriProfile(root string) KiriKiriProfile {
 	p.IsKiriKiri =
 		p.HasStartupTJS ||
 			(p.HasTJS && p.HasXP3) ||
-			(p.HasDataXP3 && hasLikelyKiriKiriExe(root))
+			(p.HasDataXP3 && hasLikelyKiriKiriExe(root, recursive))
 
 	p.Reason = strings.Join(reasons, ", ")
 	return p
 }
 
-func hasLikelyKiriKiriExe(root string) bool {
+func hasLikelyKiriKiriExe(root string, recursive bool) bool {
 	found := false
 
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || found {
+			if !recursive && err == nil && d != nil && d.IsDir() && path != root {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 

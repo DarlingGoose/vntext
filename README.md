@@ -359,7 +359,7 @@ Print install details first:
 
 Run a game by name:
 
-    vntext run-game "LPK-30005"
+    vntext run-game "testname"
 
 Run the interactive selector:
 

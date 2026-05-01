@@ -107,6 +107,7 @@ func (r *WineRunner) command(g *game.Game) (*exec.Cmd, error) {
 	if g.PrefixPath != "" {
 		cmd.Env = append(cmd.Env, "WINEPREFIX="+g.PrefixPath)
 	}
+	cmd.Env = append(cmd.Env, wineArchitectureEnvForNewPrefix(g)...)
 
 	cmd.Env = append(cmd.Env, "WINEDLLOVERRIDES=winemenubuilder.exe=d")
 

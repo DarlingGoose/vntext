@@ -119,6 +119,7 @@ func (r *ProtonRunner) command(g *game.Game) (*exec.Cmd, error) {
 	cmd := exec.Command(proton, "run", windowsPathForWine(g))
 	cmd.Dir = workingDir(g)
 	cmd.Env = baseEnv(g)
+	cmd.Env = append(cmd.Env, wineArchitectureEnvForNewPrefix(g)...)
 
 	cmd.Env = append(cmd.Env,
 		"STEAM_COMPAT_DATA_PATH="+prefix,

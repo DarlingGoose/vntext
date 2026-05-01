@@ -175,10 +175,6 @@ func baseEnv(g *game.Game) []string {
 		)
 	}
 
-	if wineArch := game.WineArchitecture(g.Architecture); wineArch != "" {
-		env = append(env, "WINEARCH="+wineArch)
-	}
-
 	for _, kv := range g.EnvVars {
 		if strings.TrimSpace(kv.Key) == "" {
 			continue
@@ -187,4 +183,31 @@ func baseEnv(g *game.Game) []string {
 	}
 
 	return env
+}
+
+func wineArchitectureEnvForNewPrefix(g *game.Game) []string {
+	if g == nil || winePrefixInitialized(g) {
+		return nil
+	}
+
+	wineArch := game.WineArchitecture(g.Architecture)
+	if wineArch == "" {
+		return nil
+	}
+
+	return []string{"WINEARCH=" + wineArch}
+}
+
+func winePrefixInitialized(g *game.Game) bool {
+	prefix := strings.TrimSpace(g.PrefixPath)
+	if prefix == "" {
+		return true
+	}
+
+	switch g.Runner {
+	case game.RunnerProton:
+		return util.IsFile(filepath.Join(prefix, "pfx", "system.reg"))
+	default:
+		return util.IsFile(filepath.Join(prefix, "system.reg"))
+	}
 }

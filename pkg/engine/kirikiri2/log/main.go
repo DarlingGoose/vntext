@@ -30,7 +30,7 @@ func main() {
 		msg = "(empty)"
 	}
 
-	line := fmt.Sprintf("[%s]:\n %s\n", time.Now().Format(time.RFC3339), msg)
+	line := fmt.Sprintf("[%s]: %s\n", time.Now().Format(time.RFC3339), msg)
 
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {

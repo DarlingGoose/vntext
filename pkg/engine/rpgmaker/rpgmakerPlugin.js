@@ -174,8 +174,8 @@
 
             const speaker = currentSpeakerName();
             const timestamp = new Date().toISOString();
-            const header = speaker ? "[" + timestamp + "] " + speaker + "\n" : "[" + timestamp + "]\n";
-            const entry = header + message + "\n\n";
+            const header = speaker ? "[" + timestamp + "][speaker:" + speaker + "]" : "[" + timestamp + "]";
+            const entry = header + message;
             fs.appendFileSync(logPath, entry, "utf8");
             window.__wglTranscriptPath = logPath;
             lastLoggedMessage = message;
@@ -220,7 +220,7 @@
             const lines = normalized.map(function(choice, index) {
                 return (index + 1) + ". " + choice;
             });
-            const entry = "[" + timestamp + "] choices\n" + lines.join("\n") + "\n\n";
+            const entry = "[" + timestamp + "] [choices]\n" + lines.join("\n");
             fs.appendFileSync(logPath, entry, "utf8");
             window.__wglTranscriptPath = logPath;
             lastLoggedChoicesKey = choiceKey;

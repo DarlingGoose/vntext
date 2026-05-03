@@ -9,8 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-
-	"github.com/DarlingGoose/vntext/pkg/util"
 )
 
 //go:embed log/main.go
@@ -26,9 +24,9 @@ func (e *Engine) installLogExe(ctx context.Context, gameRoot string) error {
 	outPath := filepath.Join(gameRoot, "log.exe")
 
 	// Already exists: leave it alone.
-	if util.IsFile(outPath) {
-		return nil
-	}
+	//if util.IsFile(outPath) { // re install
+	//	return nil
+	//}
 	logDir, err := os.MkdirTemp("", "log")
 	if err != nil {
 		return err

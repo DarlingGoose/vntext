@@ -19,6 +19,7 @@ var __TEXT_LOGGER_INSTALLED = false;
 var __tl_text_buffer = "";
 var __tl_current_character = "";
 var __tl_last_character = "";
+var __tl_current_character_fresh = false;
 
 function __tl_shell_quote(s)
 {
@@ -39,6 +40,7 @@ function __tl_set_character(name)
         return;
 
     __tl_current_character = name;
+    __tl_current_character_fresh = true;
     Debug.message("[text_logger][character] " + __tl_current_character);
 }
 
@@ -61,7 +63,16 @@ function __tl_set_current_character_silent(name)
 
     __tl_current_character = name;
     __tl_last_character = name;
+    __tl_current_character_fresh = true;
     return true;
+}
+
+function __tl_clear_stale_character()
+{
+    if (__tl_current_character_fresh)
+        return;
+
+    __tl_current_character = "";
 }
 
 function __tl_starts_with(s, prefix)
@@ -129,6 +140,31 @@ function __tl_strip_speaker_artifacts(text, speaker)
     return __tl_trim(text);
 }
 
+function __tl_strip_leading_noise(text)
+{
+    text = __tl_trim(text);
+
+    var changed = true;
+    while (changed)
+    {
+        changed = false;
+
+        while (__tl_starts_with(text, "\\n"))
+        {
+            text = __tl_trim(text.substring(2, text.length));
+            changed = true;
+        }
+
+        if (__tl_starts_with(text, "(未設定)"))
+        {
+            text = __tl_trim(text.substring(4, text.length));
+            changed = true;
+        }
+    }
+
+    return text;
+}
+
 function __tl_is_unknown_speaker_prefix(prefix)
 {
     prefix = __tl_trim(prefix);
@@ -179,10 +215,12 @@ function __tl_try_infer_speaker_from_repeated_prefix(text)
 function __tl_normalize_dialogue_text(text)
 {
     text = __tl_trim(text);
+    text = __tl_strip_leading_noise(text);
 
     // Inline speaker prefixes should override stale speaker state from the
     // previous line.
-    __tl_try_infer_speaker_from_repeated_prefix(text);
+    if (!__tl_try_infer_speaker_from_repeated_prefix(text))
+        __tl_clear_stale_character();
 
     if (__tl_trim(__tl_current_character) != "")
         text = __tl_strip_speaker_artifacts(text, __tl_current_character);
@@ -253,6 +291,7 @@ function __tl_maybe_set_character_from_params(kind, params)
 
     __tl_current_character = name;
     __tl_last_character = name;
+    __tl_current_character_fresh = true;
 
     Debug.message("[text_logger][speaker." + kind + "] " + name);
     return true;
@@ -343,6 +382,7 @@ function __tl_flush_text(reason)
     {
         // Raw text only: no [text_logger], no kind, no translation.
         appendTextLog(text);
+        __tl_current_character_fresh = false;
     }
     catch (e)
     {
@@ -751,7 +791,7 @@ function __tl_install()
     __TEXT_LOGGER_INSTALLED = true;
 
     Debug.message("[text_logger] installed");
-    __tl_log("system", "text_logger installed");
+    //__tl_log("system", "text_logger installed");
 
     return true;
 }

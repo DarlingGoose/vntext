@@ -59,7 +59,7 @@ func main() {
 
 func normalizeLogMessage(character, msg string) (string, string) {
 	speaker := strings.TrimSpace(character)
-	text := strings.TrimSpace(msg)
+	text := stripLeadingNoise(strings.TrimSpace(msg))
 
 	if inferred, cleaned, ok := inferRepeatedSpeakerPrefix(text); ok {
 		return inferred, cleaned
@@ -70,6 +70,28 @@ func normalizeLogMessage(character, msg string) (string, string) {
 	}
 
 	return "", text
+}
+
+func stripLeadingNoise(text string) string {
+	text = strings.TrimSpace(text)
+
+	for {
+		changed := false
+
+		for strings.HasPrefix(text, `\n`) {
+			text = strings.TrimSpace(strings.TrimPrefix(text, `\n`))
+			changed = true
+		}
+
+		if strings.HasPrefix(text, "(未設定)") {
+			text = strings.TrimSpace(strings.TrimPrefix(text, "(未設定)"))
+			changed = true
+		}
+
+		if !changed {
+			return text
+		}
+	}
 }
 
 func inferRepeatedSpeakerPrefix(text string) (string, string, bool) {

@@ -17,3 +17,5 @@ type Engine interface {
 	SetCustomPlugin(data string) error
 	GetDefaultPlugin() string
 }
+//todo add an option to get/find media files
+// like audio and use it in

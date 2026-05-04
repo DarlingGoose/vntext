@@ -49,3 +49,46 @@ func TestWineArchitectureEnvSkipsInitializedPrefix(t *testing.T) {
 		t.Fatalf("wineArchitectureEnvForNewPrefix() = %v", got)
 	}
 }
+
+func TestWineCommandUsesVirtualDesktopByDefault(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "Game.exe")
+	if err := os.WriteFile(exe, []byte("MZ"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, err := (&WineRunner{}).command(&game.Game{
+		Name:       "game",
+		Executable: exe,
+		Runner:     game.RunnerWine,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"wine", "explorer", "/desktop=vntext,1280x720", exe}
+	if strings.Join(cmd.Args, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("cmd.Args = %#v, want %#v", cmd.Args, want)
+	}
+}
+
+func TestWineCommandCanDisableVirtualDesktop(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "Game.exe")
+	if err := os.WriteFile(exe, []byte("MZ"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, err := (&WineRunner{}).command(&game.Game{
+		Name:           "game",
+		Executable:     exe,
+		Runner:         game.RunnerWine,
+		VirtualDesktop: "off",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"wine", exe}
+	if strings.Join(cmd.Args, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("cmd.Args = %#v, want %#v", cmd.Args, want)
+	}
+}

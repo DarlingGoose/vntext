@@ -13,6 +13,8 @@ import (
 	"github.com/DarlingGoose/vntext/pkg/util"
 )
 
+const DefaultVirtualDesktop = "1280x720"
+
 func validateGame(g *game.Game) error {
 	if g == nil {
 		return errors.New("game is nil")
@@ -214,4 +216,30 @@ func winePrefixInitialized(g *game.Game) bool {
 	default:
 		return util.IsFile(filepath.Join(prefix, "system.reg"))
 	}
+}
+
+func wineVirtualDesktop(g *game.Game) string {
+	if g == nil {
+		return ""
+	}
+
+	desktop := strings.TrimSpace(g.VirtualDesktop)
+	switch strings.ToLower(desktop) {
+	case "off", "false", "none", "disabled", "disable", "0":
+		return ""
+	case "":
+		return DefaultVirtualDesktop
+	default:
+		return desktop
+	}
+}
+
+func wineDesktopArgsForGame(g *game.Game) []string {
+	exe := windowsPathForWine(g)
+	desktop := wineVirtualDesktop(g)
+	if desktop == "" {
+		return []string{exe}
+	}
+
+	return []string{"explorer", "/desktop=vntext," + desktop, exe}
 }

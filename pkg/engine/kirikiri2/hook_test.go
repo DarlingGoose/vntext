@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/DarlingGoose/krkrxp3/pkg/xp3"
@@ -56,5 +57,28 @@ func TestInstallXP3TextHookDetectsStartupAfterExtract(t *testing.T) {
 	}
 	if g.TextHookLogFile != filepath.Join(root, "vntext.log") {
 		t.Fatalf("TextHookLogFile = %q", g.TextHookLogFile)
+	}
+}
+
+func TestTextLoggerInstallsChoiceAndMenuTagHooks(t *testing.T) {
+	tags := map[string]string{
+		"button":   "__tl_wrap_button",
+		"link":     "__tl_wrap_link",
+		"glink":    "__tl_wrap_glink",
+		"select":   "__tl_wrap_select",
+		"seladd":   "__tl_wrap_seladd",
+		"selopt":   "__tl_wrap_selopt",
+		"mselect":  "__tl_wrap_mselect",
+		"mseladd":  "__tl_wrap_mseladd",
+		"mselopt":  "__tl_wrap_mselopt",
+		"checkbox": "__tl_wrap_checkbox",
+		"edit":     "__tl_wrap_edit",
+	}
+
+	for tag, wrapper := range tags {
+		install := `__tl_install_tag("` + tag + `", ` + wrapper + `);`
+		if !strings.Contains(textLoggerSource, install) {
+			t.Fatalf("text logger does not install %s hook %s", tag, wrapper)
+		}
 	}
 }

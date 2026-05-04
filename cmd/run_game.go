@@ -21,9 +21,10 @@ import (
 )
 
 type RunGameOptions struct {
-	Background bool
-	List       bool
-	ConfigDir  string
+	Background     bool
+	List           bool
+	ConfigDir      string
+	VirtualDesktop string
 
 	Sync    bool
 	Follow  bool
@@ -125,6 +126,13 @@ func NewRunGameCommand() *cobra.Command {
 		"installed game config directory; defaults to ~/.config/vntext/games",
 	)
 
+	cmd.Flags().StringVar(
+		&opts.VirtualDesktop,
+		"virtual-desktop",
+		"",
+		"Wine virtual desktop size, such as 1280x720; use off to disable",
+	)
+
 	cmd.Flags().BoolVar(
 		&opts.Sync,
 		"sync",
@@ -154,6 +162,12 @@ func init() {
 
 func RunSelectedGame(g *game.Game, opts RunGameOptions) (*runner.ProcessStatus, error) {
 	r := runner.New()
+
+	if strings.TrimSpace(opts.VirtualDesktop) != "" {
+		copy := *g
+		copy.VirtualDesktop = opts.VirtualDesktop
+		g = &copy
+	}
 
 	if opts.Sync || opts.Background {
 		return r.RunBackground(g)

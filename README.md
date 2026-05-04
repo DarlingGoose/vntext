@@ -89,11 +89,19 @@ A game config includes information such as:
 | `Runner`        | Runner type, such as `wine` or `proton` |
 | `Executable`    | Path to the game executable             |
 | `Prefix`        | Wine/Proton prefix path                 |
+| `VirtualDesktop` | Wine desktop size; defaults to `1280x720`, set `off` to disable |
 | `Engine`        | Detected engine type                    |
 | `RequiresSteam` | Whether Steam is required               |
 | `SteamAppID`    | Steam app id, if applicable             |
 | `IconPath`      | Optional icon path                      |
 | `ImagePath`     | Optional preview image path             |
+
+Wine and Proton launches run inside a Wine virtual desktop by default. This keeps games that switch to fullscreen contained in a normal window, which avoids common black-screen issues on Linux display stacks. Override it for one run with:
+
+```bash
+vntext run-game "Game Name" --virtual-desktop 1920x1080
+vntext run-game "Game Name" --virtual-desktop off
+```
 
 ## Text Logging
 
@@ -480,4 +488,3 @@ This keeps the command code small and makes it easier to add new engines later.
 | RPG Maker   | Supported |
 | Textfile    | Encoding preservation       |
 | Log helper  | Working                     |
-

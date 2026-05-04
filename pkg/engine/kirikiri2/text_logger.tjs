@@ -585,6 +585,20 @@ function __tl_try_hook_taghandlers()
     __tl_install_tag("speaker", __tl_wrap_speaker);
     __tl_install_tag("talk", __tl_wrap_talk);
 
+    // Choice/menu tags. Many KAG games render Japanese route choices and
+    // command menus through these instead of plain ch/l/p dialogue tags.
+    __tl_install_tag("button", __tl_wrap_button);
+    __tl_install_tag("link", __tl_wrap_link);
+    __tl_install_tag("glink", __tl_wrap_glink);
+    __tl_install_tag("select", __tl_wrap_select);
+    __tl_install_tag("seladd", __tl_wrap_seladd);
+    __tl_install_tag("selopt", __tl_wrap_selopt);
+    __tl_install_tag("mselect", __tl_wrap_mselect);
+    __tl_install_tag("mseladd", __tl_wrap_mseladd);
+    __tl_install_tag("mselopt", __tl_wrap_mselopt);
+    __tl_install_tag("checkbox", __tl_wrap_checkbox);
+    __tl_install_tag("edit", __tl_wrap_edit);
+
     return true;
 }
 

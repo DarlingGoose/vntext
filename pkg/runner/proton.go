@@ -116,7 +116,8 @@ func (r *ProtonRunner) command(g *game.Game) (*exec.Cmd, error) {
 		return nil, err
 	}
 
-	cmd := exec.Command(proton, "run", windowsPathForWine(g))
+	args := append([]string{"run"}, wineDesktopArgsForGame(g)...)
+	cmd := exec.Command(proton, args...)
 	cmd.Dir = workingDir(g)
 	cmd.Env = baseEnv(g)
 	cmd.Env = append(cmd.Env, wineArchitectureEnvForNewPrefix(g)...)

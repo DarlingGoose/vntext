@@ -100,7 +100,7 @@ func (r *WineRunner) command(g *game.Game) (*exec.Cmd, error) {
 
 	wine := util.FirstNonEmpty(g.RunnerPath, "wine")
 
-	cmd := exec.Command(wine, windowsPathForWine(g))
+	cmd := exec.Command(wine, wineDesktopArgsForGame(g)...)
 	cmd.Dir = workingDir(g)
 	cmd.Env = baseEnv(g)
 

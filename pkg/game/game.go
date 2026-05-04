@@ -21,20 +21,21 @@ const (
 )
 
 type Game struct {
-	Name          string        `json:"name"`
-	GamePath      string        `json:"game_path"`
-	Executable    string        `json:"executable"`
-	Architecture  Architecture  `json:"architecture,omitempty"`
-	WorkingDir    string        `json:"working_dir"`
-	IconPath      string        `json:"icon_path,omitempty"`
-	ImagePath     string        `json:"image_path,omitempty"`
-	Runner        RunnerType    `json:"runner"`
-	RunnerPath    string        `json:"runner_path"`
-	PrefixPath    string        `json:"prefix_path,omitempty"`
-	RequiresSteam bool          `json:"requires_steam"`
-	SteamAppID    string        `json:"steam_app_id,omitempty"`
-	CreatedAt     time.Time     `json:"created_at"`
-	RuntimeInfo   RuntimeStatus `json:"runtime_info"`
+	Name           string        `json:"name"`
+	GamePath       string        `json:"game_path"`
+	Executable     string        `json:"executable"`
+	Architecture   Architecture  `json:"architecture,omitempty"`
+	WorkingDir     string        `json:"working_dir"`
+	IconPath       string        `json:"icon_path,omitempty"`
+	ImagePath      string        `json:"image_path,omitempty"`
+	Runner         RunnerType    `json:"runner"`
+	RunnerPath     string        `json:"runner_path"`
+	PrefixPath     string        `json:"prefix_path,omitempty"`
+	VirtualDesktop string        `json:"virtual_desktop,omitempty"`
+	RequiresSteam  bool          `json:"requires_steam"`
+	SteamAppID     string        `json:"steam_app_id,omitempty"`
+	CreatedAt      time.Time     `json:"created_at"`
+	RuntimeInfo    RuntimeStatus `json:"runtime_info"`
 
 	Locale        string `json:"locale,omitempty"`
 	StageToPrefix bool   `json:"stage_to_prefix,omitempty"`

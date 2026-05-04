@@ -20,6 +20,7 @@ var __tl_text_buffer = "";
 var __tl_current_character = "";
 var __tl_last_character = "";
 var __tl_current_character_fresh = false;
+var __tl_current_voice = "";
 
 function __tl_shell_quote(s)
 {
@@ -52,6 +53,16 @@ function __tl_get_character_arg()
         return "";
 
     return "-c " + __tl_shell_quote(c) + " ";
+}
+
+function __tl_get_voice_arg()
+{
+    var v = __tl_trim(__tl_current_voice);
+
+    if (v == "")
+        return "";
+
+    return "-v " + __tl_shell_quote(v) + " ";
 }
 
 function __tl_set_current_character_silent(name)
@@ -254,10 +265,45 @@ function appendTextLog(text)
     // If no character is known:
     //   log.exe "dialog text"
 
-    var args = __tl_get_character_arg() + __tl_shell_quote(text);
+    var args = __tl_get_character_arg() + __tl_get_voice_arg() + __tl_shell_quote(text);
     var ok = System.shellExecute("log.exe", args);
 
     return ok;
+}
+
+function __tl_get_param(params, key)
+{
+    try
+    {
+        if (params !== void && params[key] !== void)
+            return params[key];
+    }
+    catch (e)
+    {
+    }
+
+    return "";
+}
+
+function __tl_set_voice_from_params(kind, params)
+{
+    var voice = "";
+
+    voice = __tl_get_param(params, "storage");
+    if (__tl_trim(voice) == "") voice = __tl_get_param(params, "file");
+    if (__tl_trim(voice) == "") voice = __tl_get_param(params, "filename");
+    if (__tl_trim(voice) == "") voice = __tl_get_param(params, "name");
+    if (__tl_trim(voice) == "") voice = __tl_get_param(params, "buf");
+    if (__tl_trim(voice) == "") voice = __tl_get_param(params, "sound");
+    if (__tl_trim(voice) == "") voice = __tl_get_param(params, "voice");
+
+    voice = __tl_trim(voice);
+    if (voice == "")
+        return false;
+
+    __tl_current_voice = voice;
+    Debug.message("[text_logger][voice." + kind + "] " + voice);
+    return true;
 }
 
 
@@ -393,6 +439,7 @@ function __tl_flush_text(reason)
         // Raw text only: no [text_logger], no kind, no translation.
         appendTextLog(text);
         __tl_current_character_fresh = false;
+        __tl_current_voice = "";
     }
     catch (e)
     {
@@ -710,8 +757,20 @@ function __tl_wrap_image(params)
 
 function __tl_wrap_playse(params)
 {
-    try { __tl_log_params("playse", params); } catch (e) { Debug.message("[text_logger] playse log failed"); }
+    try { __tl_set_voice_from_params("playse", params); } catch (e) { Debug.message("[text_logger] playse voice failed"); }
     return __tl_call_original("playse", params);
+}
+
+function __tl_wrap_voice(params)
+{
+    try { __tl_set_voice_from_params("voice", params); } catch (e) { Debug.message("[text_logger] voice failed"); }
+    return __tl_call_original("voice", params);
+}
+
+function __tl_wrap_playvoice(params)
+{
+    try { __tl_set_voice_from_params("playvoice", params); } catch (e) { Debug.message("[text_logger] playvoice failed"); }
+    return __tl_call_original("playvoice", params);
 }
 
 function __tl_wrap_playbgm(params)
@@ -786,6 +845,12 @@ function __tl_try_hook_taghandlers()
     __tl_install_tag("mselopt", __tl_wrap_mselopt);
     __tl_install_tag("checkbox", __tl_wrap_checkbox);
     __tl_install_tag("edit", __tl_wrap_edit);
+
+    // Voice/audio tags. Captured storage is attached to the next flushed
+    // dialogue line with log.exe -v and then cleared.
+    __tl_install_tag("voice", __tl_wrap_voice);
+    __tl_install_tag("playvoice", __tl_wrap_playvoice);
+    __tl_install_tag("playse", __tl_wrap_playse);
 
     return true;
 }

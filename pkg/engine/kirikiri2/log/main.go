@@ -11,6 +11,7 @@ import (
 
 func main() {
 	character := flag.String("c", "", "character/speaker name")
+	voice := flag.String("v", "", "voice/audio file")
 	flag.Parse()
 	exe, err := os.Executable()
 	if err != nil {
@@ -24,7 +25,6 @@ func main() {
 
 	// If no args were passed, try stdin.
 	if strings.TrimSpace(msg) == "" {
-		println("missing args")
 		if b, err := os.ReadFile("/dev/stdin"); err == nil {
 			msg = string(b)
 		}
@@ -33,18 +33,12 @@ func main() {
 	if strings.TrimSpace(msg) == "" {
 		msg = "(empty)"
 	}
-	if character != nil {
-		println("found char from hook")
-	}
+
 	speaker, msg := normalizeLogMessage(*character, msg)
+	voiceFile := strings.TrimSpace(*voice)
 	prefix := time.Now().Format(time.RFC3339)
 
-	var line string
-	if speaker != "" {
-		line = fmt.Sprintf("[%s][speaker:%s]: %s\n", prefix, speaker, msg)
-	} else {
-		line = fmt.Sprintf("[%s]: %s\n", prefix, msg)
-	}
+	line := formatLogLine(prefix, speaker, voiceFile, msg)
 
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -55,6 +49,18 @@ func main() {
 	if _, err := f.WriteString(line); err != nil {
 		os.Exit(1)
 	}
+}
+
+func formatLogLine(timestamp, speaker, voiceFile, msg string) string {
+	header := "[" + timestamp + "]"
+	if strings.TrimSpace(speaker) != "" {
+		header += "[speaker:" + strings.TrimSpace(speaker) + "]"
+	}
+	if strings.TrimSpace(voiceFile) != "" {
+		header += "[voice:" + strings.TrimSpace(voiceFile) + "]"
+	}
+
+	return fmt.Sprintf("%s: %s\n", header, msg)
 }
 
 func normalizeLogMessage(character, msg string) (string, string) {

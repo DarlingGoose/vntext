@@ -93,8 +93,12 @@ func TestTextLoggerNormalizesRepeatedSpeakerPrefixBeforeFlush(t *testing.T) {
 		"function __tl_is_unknown_speaker_prefix(prefix)",
 		"candidate + candidate == prefix",
 		"__tl_strip_speaker_artifacts(text, __tl_current_character);",
+		"function __tl_set_voice_from_params(kind, params)",
+		"__tl_get_voice_arg()",
+		"__tl_install_tag(\"playse\", __tl_wrap_playse);",
 		"var text = __tl_normalize_dialogue_text(__tl_text_buffer);",
 		"__tl_current_character_fresh = false;",
+		"__tl_current_voice = \"\";",
 	}
 
 	for _, snippet := range required {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 )
 
 func main() {
+	character := flag.String("c", "", "character/speaker name")
+	flag.Parse()
 	exe, err := os.Executable()
 	if err != nil {
 		exe = "."
@@ -30,7 +33,14 @@ func main() {
 		msg = "(empty)"
 	}
 
-	line := fmt.Sprintf("[%s]: %s\n", time.Now().Format(time.RFC3339), msg)
+	prefix := time.Now().Format(time.RFC3339)
+
+	var line string
+	if character != nil && strings.TrimSpace(*character) != "" {
+		line = fmt.Sprintf("[%s][speaker:%s]: %s\n", prefix, strings.TrimSpace(*character), msg)
+	} else {
+		line = fmt.Sprintf("[%s]: %s\n", prefix, msg)
+	}
 
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {

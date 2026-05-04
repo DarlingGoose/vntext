@@ -107,7 +107,6 @@ func DetectEngineFromPath(ctx context.Context, inputPath string) (*EngineDetecti
 	} else {
 		mainExe := findMainExe(scanRoot, files)
 		if mainExe != "" {
-			exePath = mainExe
 			d.StringHits = exeStringHits(ctx, mainExe)
 
 			if out, err := runCmd(ctx, "file", mainExe); err == nil {

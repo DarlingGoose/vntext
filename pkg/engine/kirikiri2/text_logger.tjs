@@ -17,6 +17,40 @@ var __TEXT_LOGGER_INSTALLED = false;
 
 
 var __tl_text_buffer = "";
+var __tl_current_character = "";
+var __tl_last_character = "";
+
+function __tl_shell_quote(s)
+{
+    s = __tl_to_string(s);
+
+    // Basic Windows command-line quoting.
+    s = s.replace(/\\/g, "\\\\");
+    s = s.replace(/"/g, "\\\"");
+
+    return "\"" + s + "\"";
+}
+
+function __tl_set_character(name)
+{
+    name = __tl_trim(name);
+
+    if (name == "")
+        return;
+
+    __tl_current_character = name;
+    Debug.message("[text_logger][character] " + __tl_current_character);
+}
+
+function __tl_get_character_arg()
+{
+    var c = __tl_trim(__tl_current_character);
+
+    if (c == "")
+        return "";
+
+    return "-c " + __tl_shell_quote(c) + " ";
+}
 
 function appendTextLog(text)
 {
@@ -27,8 +61,103 @@ function appendTextLog(text)
 
     // log.exe should be built with:
     // GOOS=windows GOARCH=386 go build -ldflags="-H=windowsgui" -o log.exe main.go
-    var ok = System.shellExecute("log.exe", text);
+    //
+    // If a character is known:
+    //   log.exe -c "Character Name" "dialog text"
+    //
+    // If no character is known:
+    //   log.exe "dialog text"
+
+    var args = __tl_get_character_arg() + __tl_shell_quote(text);
+    var ok = System.shellExecute("log.exe", args);
+
     return ok;
+}
+
+
+
+function __tl_maybe_set_character_from_params(kind, params)
+{
+    if (params === void)
+        return false;
+
+    var name = "";
+
+    try
+    {
+        if (params["text"] !== void) name = params["text"];
+        else if (params["name"] !== void) name = params["name"];
+        else if (params["chara"] !== void) name = params["chara"];
+        else if (params["character"] !== void) name = params["character"];
+        else if (params["speaker"] !== void) name = params["speaker"];
+        else if (params["caption"] !== void) name = params["caption"];
+        else if (params["label"] !== void) name = params["label"];
+        else if (params["who"] !== void) name = params["who"];
+        else if (params["actor"] !== void) name = params["actor"];
+    }
+    catch (e)
+    {
+        return false;
+    }
+
+    name = __tl_trim(name);
+
+    if (name == "")
+        return false;
+
+    // Avoid obvious non-speaker values.
+    if (name.indexOf("*") == 0) return false;
+    if (name.indexOf("storage") >= 0) return false;
+    if (name.indexOf(".ks") >= 0) return false;
+    if (name.indexOf(".tjs") >= 0) return false;
+    if (name.indexOf("/") >= 0) return false;
+    if (name.indexOf("\\") >= 0) return false;
+
+    __tl_current_character = name;
+    __tl_last_character = name;
+
+    Debug.message("[text_logger][speaker." + kind + "] " + name);
+    return true;
+}
+
+function __tl_wrap_name(params)
+{
+    try { __tl_maybe_set_character_from_params("name", params); }
+    catch (e) { Debug.message("[text_logger] name speaker failed"); }
+
+    return __tl_call_original("name", params);
+}
+
+function __tl_wrap_nm(params)
+{
+    try { __tl_maybe_set_character_from_params("nm", params); }
+    catch (e) { Debug.message("[text_logger] nm speaker failed"); }
+
+    return __tl_call_original("nm", params);
+}
+
+function __tl_wrap_chara(params)
+{
+    try { __tl_maybe_set_character_from_params("chara", params); }
+    catch (e) { Debug.message("[text_logger] chara speaker failed"); }
+
+    return __tl_call_original("chara", params);
+}
+
+function __tl_wrap_speaker(params)
+{
+    try { __tl_maybe_set_character_from_params("speaker", params); }
+    catch (e) { Debug.message("[text_logger] speaker failed"); }
+
+    return __tl_call_original("speaker", params);
+}
+
+function __tl_wrap_talk(params)
+{
+    try { __tl_maybe_set_character_from_params("talk", params); }
+    catch (e) { Debug.message("[text_logger] talk speaker failed"); }
+
+    return __tl_call_original("talk", params);
 }
 
 function __tl_is_probably_text(s)
@@ -444,15 +573,17 @@ function __tl_try_hook_taghandlers()
     if (kag === void) return false;
     if (kag.tagHandlers === void) return false;
 
-    // Text-ish / message flow.
-
     __tl_install_tag("ch", __tl_wrap_ch);
     __tl_install_tag("r", __tl_wrap_r);
     __tl_install_tag("l", __tl_wrap_l);
     __tl_install_tag("p", __tl_wrap_p);
 
-
-    // Choices / UI.
+    // Common speaker/name tags.
+    __tl_install_tag("name", __tl_wrap_name);
+    __tl_install_tag("nm", __tl_wrap_nm);
+    __tl_install_tag("chara", __tl_wrap_chara);
+    __tl_install_tag("speaker", __tl_wrap_speaker);
+    __tl_install_tag("talk", __tl_wrap_talk);
 
     return true;
 }

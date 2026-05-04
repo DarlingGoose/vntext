@@ -38,12 +38,6 @@ type EngineDetection struct {
 	FileOutput string   `json:"file_output,omitempty"`
 }
 
-type signature struct {
-	Engine Engine
-	Score  int
-	Reason string
-}
-
 func DetectEngineFromExe(ctx context.Context, exePath string) (*EngineDetection, error) {
 	exePath = expandHome(exePath)
 

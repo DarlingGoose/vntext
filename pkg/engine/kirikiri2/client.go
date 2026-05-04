@@ -155,7 +155,7 @@ func (e *Engine) IsEngine(dir string) bool {
 	return profile.IsKiriKiri
 }
 
-func (e *Engine) GetFile(g *game.Game, file string) ([]byte, error) {
+func (e *Engine) GetFile(g *game.Game, file string) (*engine.EngineFileInfo, error) {
 	if err := e.ensureGameReadyEnough(g); err != nil {
 		return nil, err
 	}
@@ -174,8 +174,11 @@ func (e *Engine) GetFile(g *game.Game, file string) ([]byte, error) {
 		return nil, err
 	}
 
-	_, data, err := util.FindFileAndRead(dataDir, file)
-	return data, err
+	path, data, err := util.FindFileAndRead(dataDir, file)
+	if err != nil {
+		return nil, err
+	}
+	return engine.NewEngineFileInfo(path, data), nil
 }
 
 func cachedKiriKiriArchiveDataDir(ctx context.Context, archive string) (string, error) {

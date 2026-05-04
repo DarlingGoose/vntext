@@ -16,7 +16,7 @@ type Engine interface {
 	IsEngine(dir string) bool
 	SetCustomPlugin(data string) error
 	GetDefaultPlugin() string
-	GetFile(g *game.Game, file string) ([]byte, error)
+	GetFile(g *game.Game, file string) (*EngineFileInfo, error)
 }
 
 //todo add an option to get/find media files

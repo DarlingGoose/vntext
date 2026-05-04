@@ -25,22 +25,51 @@ var pluginSource string
 var _ engine.Engine = &Engine{}
 
 type Engine struct {
-	PrefixRoot string
+	PrefixRoot    string
+	CurrentPlugin string
 }
 
-func (e *Engine) GetFile(g *game.Game, file string) ([]byte, error) {
-	//TODO implement me
-	panic("implement me")
+func (e *Engine) GetFile(g *game.Game, file string) (*engine.EngineFileInfo, error) {
+	if g == nil {
+		return nil, errors.New("game is nil")
+	}
+
+	projectRoot, _, err := resolveProjectRoot(g.GamePath)
+	if err != nil {
+		for _, candidate := range []string{g.WorkingDir, filepath.Dir(g.Executable)} {
+			if strings.TrimSpace(candidate) == "" {
+				continue
+			}
+			projectRoot, _, err = resolveProjectRoot(candidate)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	path, data, err := util.FindFileAndRead(projectRoot, file)
+	if err != nil {
+		return nil, err
+	}
+	return engine.NewEngineFileInfo(path, data), nil
 }
 
 func (e *Engine) GetDefaultPlugin() string {
-	//TODO implement me
-	panic("implement me")
+	if e != nil && strings.TrimSpace(e.CurrentPlugin) != "" {
+		return e.CurrentPlugin
+	}
+	return pluginSource
 }
 
 func (e *Engine) SetCustomPlugin(data string) error {
-	//TODO implement me
-	panic("implement me")
+	if e == nil {
+		return errors.New("engine is nil")
+	}
+	e.CurrentPlugin = data
+	return nil
 }
 
 // New returns an RPG Maker engine installer with sane defaults.
@@ -150,7 +179,7 @@ func (e *Engine) InstallTextHook(g *game.Game) error {
 		return fmt.Errorf("create plugins dir: %w", err)
 	}
 
-	if err := os.WriteFile(pluginPath, []byte(pluginSource), 0o644); err != nil {
+	if err := os.WriteFile(pluginPath, []byte(e.GetDefaultPlugin()), 0o644); err != nil {
 		return fmt.Errorf("write RPG Maker plugin: %w", err)
 	}
 

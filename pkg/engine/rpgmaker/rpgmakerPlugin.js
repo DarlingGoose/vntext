@@ -10,6 +10,7 @@
     window.__wglTranscriptPath = "";
     let lastLoggedMessage = "";
     let lastLoggedChoicesKey = "";
+    let currentVoiceFile = "";
 
     function setLatestMessage(text) {
         if (typeof text !== "string") {
@@ -90,6 +91,36 @@
             console.warn("WGLClipboardText speaker lookup failed", error);
         }
         return "";
+    }
+
+    function normalizeAudioName(audio) {
+        if (!audio) {
+            return "";
+        }
+        if (typeof audio === "string") {
+            return audio.trim();
+        }
+        if (typeof audio.name === "string") {
+            return audio.name.trim();
+        }
+        if (typeof audio.file === "string") {
+            return audio.file.trim();
+        }
+        if (typeof audio.filename === "string") {
+            return audio.filename.trim();
+        }
+        if (typeof audio.voice === "string") {
+            return audio.voice.trim();
+        }
+        return "";
+    }
+
+    function setCurrentVoice(kind, audio) {
+        const name = normalizeAudioName(audio);
+        if (!name) {
+            return;
+        }
+        currentVoiceFile = kind ? "audio/" + kind + "/" + name : name;
     }
 
     function rawMessageText() {
@@ -173,12 +204,20 @@
             }
 
             const speaker = currentSpeakerName();
+            const voice = String(currentVoiceFile || "").trim();
             const timestamp = new Date().toISOString();
-            const header = speaker ? "[" + timestamp + "][speaker:" + speaker + "]" : "[" + timestamp + "]";
-            const entry = header + message;
+            let header = "[" + timestamp + "]";
+            if (speaker) {
+                header += "[speaker:" + speaker + "]";
+            }
+            if (voice) {
+                header += "[voice:" + voice + "]";
+            }
+            const entry = header + ": " + message + "\n";
             fs.appendFileSync(logPath, entry, "utf8");
             window.__wglTranscriptPath = logPath;
             lastLoggedMessage = message;
+            currentVoiceFile = "";
         } catch (error) {
             console.warn("WGLClipboardText transcript write failed", error);
         }
@@ -220,7 +259,7 @@
             const lines = normalized.map(function(choice, index) {
                 return (index + 1) + ". " + choice;
             });
-            const entry = "[" + timestamp + "] [choices]\n" + lines.join("\n");
+            const entry = "[" + timestamp + "][choices]\n" + lines.join("\n") + "\n";
             fs.appendFileSync(logPath, entry, "utf8");
             window.__wglTranscriptPath = logPath;
             lastLoggedChoicesKey = choiceKey;
@@ -305,6 +344,32 @@
             Window_ChoiceList.prototype.refresh = function() {
                 originalWindowChoiceListRefresh.call(this);
                 refreshLatestChoices(currentMessageWindow() || this);
+            };
+        }
+    }
+
+    if (typeof AudioManager !== "undefined" && AudioManager) {
+        if (typeof AudioManager.playSe === "function") {
+            const originalAudioManagerPlaySe = AudioManager.playSe;
+            AudioManager.playSe = function(se) {
+                setCurrentVoice("se", se);
+                return originalAudioManagerPlaySe.call(this, se);
+            };
+        }
+
+        if (typeof AudioManager.playStaticSe === "function") {
+            const originalAudioManagerPlayStaticSe = AudioManager.playStaticSe;
+            AudioManager.playStaticSe = function(se) {
+                setCurrentVoice("se", se);
+                return originalAudioManagerPlayStaticSe.call(this, se);
+            };
+        }
+
+        if (typeof AudioManager.playVoice === "function") {
+            const originalAudioManagerPlayVoice = AudioManager.playVoice;
+            AudioManager.playVoice = function(voice) {
+                setCurrentVoice("voice", voice);
+                return originalAudioManagerPlayVoice.call(this, voice);
             };
         }
     }

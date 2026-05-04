@@ -127,13 +127,15 @@ function __tl_strip_speaker_artifacts(text, speaker)
     if (speaker == "")
         return text;
 
-    if (__tl_starts_with(text, speaker + speaker + "「"))
+    if (__tl_starts_with(text, speaker + speaker + "「") || __tl_starts_with(text, speaker + speaker + "（"))
         text = text.substring((speaker + speaker).length, text.length);
-    else if (__tl_starts_with(text, speaker + "「"))
+    else if (__tl_starts_with(text, speaker + "「") || __tl_starts_with(text, speaker + "（"))
         text = text.substring(speaker.length, text.length);
 
     while (__tl_starts_with(text, "「「"))
         text = "「" + text.substring(2, text.length);
+    while (__tl_starts_with(text, "（（"))
+        text = "（" + text.substring(2, text.length);
 
     text = __tl_strip_trailing_speaker_name(text, speaker);
 
@@ -188,6 +190,10 @@ function __tl_try_infer_speaker_from_repeated_prefix(text)
     text = __tl_trim(text);
 
     var idx = text.indexOf("「");
+    var parenIdx = text.indexOf("（");
+    if (idx < 0 || (parenIdx >= 0 && parenIdx < idx))
+        idx = parenIdx;
+
     if (idx <= 0)
         return false;
 

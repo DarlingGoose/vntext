@@ -95,7 +95,7 @@ func stripLeadingNoise(text string) string {
 }
 
 func inferRepeatedSpeakerPrefix(text string) (string, string, bool) {
-	idx := strings.Index(text, "「")
+	idx := firstDialogueOpenerIndex(text)
 	if idx <= 0 {
 		return "", text, false
 	}
@@ -118,6 +118,19 @@ func inferRepeatedSpeakerPrefix(text string) (string, string, bool) {
 	}
 
 	return first, stripSpeakerArtifacts(text, first), true
+}
+
+func firstDialogueOpenerIndex(text string) int {
+	idx := strings.Index(text, "「")
+	parenIdx := strings.Index(text, "（")
+	switch {
+	case idx < 0:
+		return parenIdx
+	case parenIdx >= 0 && parenIdx < idx:
+		return parenIdx
+	default:
+		return idx
+	}
 }
 
 func isUnknownSpeakerPrefix(prefix string) bool {
@@ -145,12 +158,19 @@ func stripSpeakerArtifacts(text, speaker string) string {
 	switch {
 	case strings.HasPrefix(text, speaker+speaker+"「"):
 		text = text[len(speaker+speaker):]
+	case strings.HasPrefix(text, speaker+speaker+"（"):
+		text = text[len(speaker+speaker):]
 	case strings.HasPrefix(text, speaker+"「"):
+		text = text[len(speaker):]
+	case strings.HasPrefix(text, speaker+"（"):
 		text = text[len(speaker):]
 	}
 
 	for strings.HasPrefix(text, "「「") {
 		text = "「" + strings.TrimPrefix(text, "「「")
+	}
+	for strings.HasPrefix(text, "（（") {
+		text = "（" + strings.TrimPrefix(text, "（（")
 	}
 
 	text = stripTrailingSpeakerName(text, speaker)

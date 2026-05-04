@@ -107,3 +107,65 @@ func TestTextLoggerNormalizesRepeatedSpeakerPrefixBeforeFlush(t *testing.T) {
 		}
 	}
 }
+
+func TestKiriKiriArchiveCacheDirChangesWhenArchiveChanges(t *testing.T) {
+	archive := filepath.Join(t.TempDir(), "data.xp3")
+	if err := os.WriteFile(archive, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := kirikiriArchiveCacheDir(archive)
+	if err != nil {
+		t.Fatalf("kirikiriArchiveCacheDir() error = %v", err)
+	}
+
+	if err := os.WriteFile(archive, []byte("two-two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := kirikiriArchiveCacheDir(archive)
+	if err != nil {
+		t.Fatalf("kirikiriArchiveCacheDir() error = %v", err)
+	}
+
+	if first == second {
+		t.Fatalf("cache dir did not change after archive content metadata changed: %s", first)
+	}
+}
+
+func TestCachedKiriKiriArchiveDataDirReusesCompletedExtraction(t *testing.T) {
+	root := t.TempDir()
+	sourceDir := filepath.Join(root, "source")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, startupFileName), []byte(`Scripts.execStorage("system/Initialize.tjs");`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archive := filepath.Join(root, "data.xp3")
+	if err := createXP3FromFolder(archive, sourceDir, false); err != nil {
+		t.Fatalf("create fixture xp3: %v", err)
+	}
+
+	first, err := cachedKiriKiriArchiveDataDir(context.Background(), archive)
+	if err != nil {
+		t.Fatalf("cachedKiriKiriArchiveDataDir() first error = %v", err)
+	}
+	second, err := cachedKiriKiriArchiveDataDir(context.Background(), archive)
+	if err != nil {
+		t.Fatalf("cachedKiriKiriArchiveDataDir() second error = %v", err)
+	}
+
+	if first != second {
+		t.Fatalf("cache data dir was not reused: first=%s second=%s", first, second)
+	}
+
+	cacheDir, err := kirikiriArchiveCacheDir(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, ".vntext-complete")); err != nil {
+		t.Fatalf("cache marker missing: %v", err)
+	}
+}

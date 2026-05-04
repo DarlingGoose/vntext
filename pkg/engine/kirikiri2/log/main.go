@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -63,10 +64,12 @@ func formatLogLine(timestamp, speaker, voiceFile, msg string) string {
 	return fmt.Sprintf("%s: %s\n", header, msg)
 }
 
+var stripnewlines = regexp.MustCompile(`\\\\n`)
+
 func normalizeLogMessage(character, msg string) (string, string) {
 	speaker := strings.TrimSpace(character)
 	text := stripLeadingNoise(strings.TrimSpace(msg))
-
+	text = stripnewlines.ReplaceAllString(text, " ")
 	if inferred, cleaned, ok := inferRepeatedSpeakerPrefix(text); ok {
 		return inferred, cleaned
 	}

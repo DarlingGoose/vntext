@@ -2,7 +2,9 @@ package kirikiri2
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -167,28 +169,76 @@ func (e *Engine) GetFile(g *game.Game, file string) ([]byte, error) {
 		return nil, err
 	}
 
-	workDir, err := os.MkdirTemp("", "wgl-krkr-hook-*")
+	dataDir, err := cachedKiriKiriArchiveDataDir(ctx, archive)
 	if err != nil {
-		return nil, fmt.Errorf("create temp hook dir: %w", err)
+		return nil, err
 	}
-	defer os.RemoveAll(workDir)
 
+	_, data, err := util.FindFileAndRead(dataDir, file)
+	return data, err
+}
+
+func cachedKiriKiriArchiveDataDir(ctx context.Context, archive string) (string, error) {
+	cacheDir, err := kirikiriArchiveCacheDir(archive)
+	if err != nil {
+		return "", err
+	}
+
+	marker := filepath.Join(cacheDir, ".vntext-complete")
 	plan := xp3PatchPlan{
 		SourceArchive: archive,
-		OutputArchive: filepath.Join(root, wglPatchXP3Name),
-		WorkDir:       workDir,
+		OutputArchive: filepath.Join(filepath.Dir(archive), wglPatchXP3Name),
+		WorkDir:       cacheDir,
 	}
+
+	if util.IsFile(marker) {
+		if err := detectExtractedLayout(&plan); err == nil {
+			return plan.DataDir, nil
+		}
+		_ = os.RemoveAll(cacheDir)
+	}
+
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return "", fmt.Errorf("clear stale Kirikiri cache: %w", err)
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return "", fmt.Errorf("create Kirikiri cache dir: %w", err)
+	}
+
 	if err := extractXP3ForPatch(ctx, &plan); err != nil {
-		return nil, err
+		_ = os.RemoveAll(cacheDir)
+		return "", err
 	}
-
 	if err := detectExtractedLayout(&plan); err != nil {
-		return nil, err
+		_ = os.RemoveAll(cacheDir)
+		return "", err
+	}
+	if err := os.WriteFile(marker, []byte("ok\n"), 0o644); err != nil {
+		_ = os.RemoveAll(cacheDir)
+		return "", fmt.Errorf("mark Kirikiri cache complete: %w", err)
 	}
 
-	_, data, err := util.FindFileAndRead(plan.DataDir, file)
-	if strings.Contains(plan.DataDir, "/tmp") {
-		_ = os.RemoveAll(plan.DataDir)
+	return plan.DataDir, nil
+}
+
+func kirikiriArchiveCacheDir(archive string) (string, error) {
+	abs, err := filepath.Abs(archive)
+	if err != nil {
+		return "", fmt.Errorf("resolve Kirikiri archive path: %w", err)
 	}
-	return data, err
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("stat Kirikiri archive: %w", err)
+	}
+
+	sum := sha256.Sum256([]byte(fmt.Sprintf(
+		"%s\x00%d\x00%d",
+		abs,
+		info.Size(),
+		info.ModTime().UnixNano(),
+	)))
+	key := hex.EncodeToString(sum[:16])
+
+	return filepath.Join(os.TempDir(), "vntext", "kirikiri2", "xp3-cache", key), nil
 }

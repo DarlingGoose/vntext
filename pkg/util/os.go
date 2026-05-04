@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,4 +115,85 @@ func scoreSharedAssetCandidate(searchRoot, path string) int {
 	}
 
 	return score
+}
+
+func FindFileAndRead(startDir, partialPath string) (absPath string, data []byte, err error) {
+	if strings.TrimSpace(startDir) == "" {
+		return "", nil, fmt.Errorf("startDir is required")
+	}
+	if strings.TrimSpace(partialPath) == "" {
+		return "", nil, fmt.Errorf("partialPath is required")
+	}
+
+	startAbs, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve start dir: %w", err)
+	}
+
+	info, err := os.Stat(startAbs)
+	if err != nil {
+		return "", nil, fmt.Errorf("stat start dir: %w", err)
+	}
+	if !info.IsDir() {
+		return "", nil, fmt.Errorf("startDir is not a directory: %s", startAbs)
+	}
+
+	partialClean := normalizePathForMatch(partialPath)
+
+	var found string
+
+	err = filepath.WalkDir(startAbs, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			// Skip dirs/files we cannot read instead of failing the whole search.
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil
+		}
+
+		rel, err := filepath.Rel(startAbs, abs)
+		if err != nil {
+			return nil
+		}
+
+		relNorm := normalizePathForMatch(rel)
+		absNorm := normalizePathForMatch(abs)
+
+		if strings.Contains(relNorm, partialClean) || strings.Contains(absNorm, partialClean) {
+			found = abs
+			return filepath.SkipAll
+		}
+
+		return nil
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("walk dir: %w", err)
+	}
+
+	if found == "" {
+		return "", nil, fmt.Errorf("file matching %q not found under %s", partialPath, startAbs)
+	}
+
+	data, err = os.ReadFile(found)
+	if err != nil {
+		return "", nil, fmt.Errorf("read file %s: %w", found, err)
+	}
+
+	return found, data, nil
+}
+
+func normalizePathForMatch(p string) string {
+	p = filepath.Clean(p)
+	p = filepath.ToSlash(p)
+	p = strings.TrimPrefix(p, "./")
+	return strings.ToLower(p)
 }

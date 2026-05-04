@@ -16,6 +16,10 @@ type Engine interface {
 	IsEngine(dir string) bool
 	SetCustomPlugin(data string) error
 	GetDefaultPlugin() string
+	GetFile(g *game.Game, file string) ([]byte, error)
 }
+
 //todo add an option to get/find media files
 // like audio and use it in
+//https://github.com/Artikash/Textractor/blob/master/texthook/engine/engine.h todo use this to support more engines
+//

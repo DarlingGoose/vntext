@@ -152,3 +152,43 @@ func (e *Engine) IsEngine(dir string) bool {
 	profile := DetectKiriKiriProfile(root)
 	return profile.IsKiriKiri
 }
+
+func (e *Engine) GetFile(g *game.Game, file string) ([]byte, error) {
+	if err := e.ensureGameReadyEnough(g); err != nil {
+		return nil, err
+	}
+	root := g.WorkingDir
+	if strings.TrimSpace(root) == "" {
+		root = filepath.Dir(g.Executable)
+	}
+	ctx := context.Background()
+	archive, err := findBestKiriKiriArchive(root)
+	if err != nil {
+		return nil, err
+	}
+
+	workDir, err := os.MkdirTemp("", "wgl-krkr-hook-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp hook dir: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+
+	plan := xp3PatchPlan{
+		SourceArchive: archive,
+		OutputArchive: filepath.Join(root, wglPatchXP3Name),
+		WorkDir:       workDir,
+	}
+	if err := extractXP3ForPatch(ctx, &plan); err != nil {
+		return nil, err
+	}
+
+	if err := detectExtractedLayout(&plan); err != nil {
+		return nil, err
+	}
+
+	_, data, err := util.FindFileAndRead(plan.DataDir, file)
+	if strings.Contains(plan.DataDir, "/tmp") {
+		_ = os.RemoveAll(plan.DataDir)
+	}
+	return data, err
+}

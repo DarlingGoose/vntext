@@ -28,6 +28,11 @@ type Engine struct {
 	PrefixRoot string
 }
 
+func (e *Engine) GetFile(g *game.Game, file string) ([]byte, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (e *Engine) GetDefaultPlugin() string {
 	//TODO implement me
 	panic("implement me")

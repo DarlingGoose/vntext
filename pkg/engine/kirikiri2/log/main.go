@@ -20,10 +20,11 @@ func main() {
 	dir := filepath.Dir(exe)
 	logPath := filepath.Join(dir, "vntext.log")
 
-	msg := strings.Join(os.Args[1:], " ")
+	msg := strings.Join(flag.Args(), " ")
 
 	// If no args were passed, try stdin.
 	if strings.TrimSpace(msg) == "" {
+		println("missing args")
 		if b, err := os.ReadFile("/dev/stdin"); err == nil {
 			msg = string(b)
 		}
@@ -32,12 +33,15 @@ func main() {
 	if strings.TrimSpace(msg) == "" {
 		msg = "(empty)"
 	}
-
+	if character != nil {
+		println("found char from hook")
+	}
+	speaker, msg := normalizeLogMessage(*character, msg)
 	prefix := time.Now().Format(time.RFC3339)
 
 	var line string
-	if character != nil && strings.TrimSpace(*character) != "" {
-		line = fmt.Sprintf("[%s][speaker:%s]: %s\n", prefix, strings.TrimSpace(*character), msg)
+	if speaker != "" {
+		line = fmt.Sprintf("[%s][speaker:%s]: %s\n", prefix, speaker, msg)
 	} else {
 		line = fmt.Sprintf("[%s]: %s\n", prefix, msg)
 	}
@@ -51,4 +55,97 @@ func main() {
 	if _, err := f.WriteString(line); err != nil {
 		os.Exit(1)
 	}
+}
+
+func normalizeLogMessage(character, msg string) (string, string) {
+	speaker := strings.TrimSpace(character)
+	text := strings.TrimSpace(msg)
+
+	if inferred, cleaned, ok := inferRepeatedSpeakerPrefix(text); ok {
+		return inferred, cleaned
+	}
+
+	if speaker != "" {
+		return speaker, stripSpeakerArtifacts(text, speaker)
+	}
+
+	return "", text
+}
+
+func inferRepeatedSpeakerPrefix(text string) (string, string, bool) {
+	idx := strings.Index(text, "「")
+	if idx <= 0 {
+		return "", text, false
+	}
+
+	prefix := strings.TrimSpace(text[:idx])
+	if isUnknownSpeakerPrefix(prefix) {
+		return prefix, stripSpeakerArtifacts(text, prefix), true
+	}
+
+	runes := []rune(prefix)
+	if len(runes) == 0 || len(runes)%2 != 0 {
+		return "", text, false
+	}
+
+	half := len(runes) / 2
+	first := string(runes[:half])
+	second := string(runes[half:])
+	if first == "" || first != second {
+		return "", text, false
+	}
+
+	return first, stripSpeakerArtifacts(text, first), true
+}
+
+func isUnknownSpeakerPrefix(prefix string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return false
+	}
+
+	for _, r := range prefix {
+		if r != '？' && r != '?' {
+			return false
+		}
+	}
+
+	return true
+}
+
+func stripSpeakerArtifacts(text, speaker string) string {
+	text = strings.TrimSpace(text)
+	speaker = strings.TrimSpace(speaker)
+	if text == "" || speaker == "" {
+		return text
+	}
+
+	switch {
+	case strings.HasPrefix(text, speaker+speaker+"「"):
+		text = text[len(speaker+speaker):]
+	case strings.HasPrefix(text, speaker+"「"):
+		text = text[len(speaker):]
+	}
+
+	for strings.HasPrefix(text, "「「") {
+		text = "「" + strings.TrimPrefix(text, "「「")
+	}
+
+	text = stripTrailingSpeakerName(text, speaker)
+
+	return strings.TrimSpace(text)
+}
+
+func stripTrailingSpeakerName(text, speaker string) string {
+	trimmed := strings.TrimSpace(text)
+	if !strings.HasSuffix(trimmed, speaker) {
+		return trimmed
+	}
+
+	withoutSpeaker := strings.TrimSpace(strings.TrimSuffix(trimmed, speaker))
+	if strings.HasSuffix(withoutSpeaker, "」") {
+		return withoutSpeaker
+	}
+
+	return trimmed
 }

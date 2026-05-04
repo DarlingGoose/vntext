@@ -82,3 +82,19 @@ func TestTextLoggerInstallsChoiceAndMenuTagHooks(t *testing.T) {
 		}
 	}
 }
+
+func TestTextLoggerNormalizesRepeatedSpeakerPrefixBeforeFlush(t *testing.T) {
+	required := []string{
+		"function __tl_normalize_dialogue_text(text)",
+		"__tl_try_infer_speaker_from_repeated_prefix(text);",
+		"function __tl_is_unknown_speaker_prefix(prefix)",
+		"__tl_strip_speaker_artifacts(text, __tl_current_character);",
+		"var text = __tl_normalize_dialogue_text(__tl_text_buffer);",
+	}
+
+	for _, snippet := range required {
+		if !strings.Contains(textLoggerSource, snippet) {
+			t.Fatalf("text logger missing speaker normalization snippet: %s", snippet)
+		}
+	}
+}

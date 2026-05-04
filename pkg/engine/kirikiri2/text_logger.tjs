@@ -52,6 +52,144 @@ function __tl_get_character_arg()
     return "-c " + __tl_shell_quote(c) + " ";
 }
 
+function __tl_set_current_character_silent(name)
+{
+    name = __tl_trim(name);
+
+    if (name == "")
+        return false;
+
+    __tl_current_character = name;
+    __tl_last_character = name;
+    return true;
+}
+
+function __tl_starts_with(s, prefix)
+{
+    s = __tl_to_string(s);
+    prefix = __tl_to_string(prefix);
+
+    if (prefix == "")
+        return true;
+
+    return s.indexOf(prefix) == 0;
+}
+
+function __tl_ends_with(s, suffix)
+{
+    s = __tl_to_string(s);
+    suffix = __tl_to_string(suffix);
+
+    if (suffix == "")
+        return true;
+
+    if (s.length < suffix.length)
+        return false;
+
+    return s.substring(s.length - suffix.length, s.length) == suffix;
+}
+
+function __tl_strip_trailing_speaker_name(text, speaker)
+{
+    text = __tl_trim(text);
+    speaker = __tl_trim(speaker);
+
+    if (speaker == "")
+        return text;
+
+    if (!__tl_ends_with(text, speaker))
+        return text;
+
+    var withoutSpeaker = __tl_trim(text.substring(0, text.length - speaker.length));
+
+    if (__tl_ends_with(withoutSpeaker, "」"))
+        return withoutSpeaker;
+
+    return text;
+}
+
+function __tl_strip_speaker_artifacts(text, speaker)
+{
+    text = __tl_trim(text);
+    speaker = __tl_trim(speaker);
+
+    if (speaker == "")
+        return text;
+
+    if (__tl_starts_with(text, speaker + speaker + "「"))
+        text = text.substring((speaker + speaker).length, text.length);
+    else if (__tl_starts_with(text, speaker + "「"))
+        text = text.substring(speaker.length, text.length);
+
+    while (__tl_starts_with(text, "「「"))
+        text = "「" + text.substring(2, text.length);
+
+    text = __tl_strip_trailing_speaker_name(text, speaker);
+
+    return __tl_trim(text);
+}
+
+function __tl_is_unknown_speaker_prefix(prefix)
+{
+    prefix = __tl_trim(prefix);
+
+    if (prefix == "")
+        return false;
+
+    var i;
+    for (i = 0; i < prefix.length; i++)
+    {
+        var ch = prefix.substring(i, i + 1);
+        if (ch != "？" && ch != "?")
+            return false;
+    }
+
+    return true;
+}
+
+function __tl_try_infer_speaker_from_repeated_prefix(text)
+{
+    text = __tl_trim(text);
+
+    var idx = text.indexOf("「");
+    if (idx <= 0)
+        return false;
+
+    var prefix = __tl_trim(text.substring(0, idx));
+    if (__tl_is_unknown_speaker_prefix(prefix))
+    {
+        __tl_set_current_character_silent(prefix);
+        return true;
+    }
+
+    if (prefix == "" || (prefix.length % 2) != 0)
+        return false;
+
+    var half = prefix.length / 2;
+    var first = prefix.substring(0, half);
+    var second = prefix.substring(half, prefix.length);
+
+    if (first == "" || first != second)
+        return false;
+
+    __tl_set_current_character_silent(first);
+    return true;
+}
+
+function __tl_normalize_dialogue_text(text)
+{
+    text = __tl_trim(text);
+
+    // Inline speaker prefixes should override stale speaker state from the
+    // previous line.
+    __tl_try_infer_speaker_from_repeated_prefix(text);
+
+    if (__tl_trim(__tl_current_character) != "")
+        text = __tl_strip_speaker_artifacts(text, __tl_current_character);
+
+    return text;
+}
+
 function appendTextLog(text)
 {
     text = __tl_to_string(text);
@@ -193,7 +331,7 @@ function __tl_add_text(s)
 
 function __tl_flush_text(reason)
 {
-    var text = __tl_trim(__tl_text_buffer);
+    var text = __tl_normalize_dialogue_text(__tl_text_buffer);
     __tl_text_buffer = "";
 
     if (text == "")

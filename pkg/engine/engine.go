@@ -14,4 +14,6 @@ type Engine interface {
 	IsDirEngine(dir string) bool
 	InstallTextHook(game *game.Game) error
 	IsEngine(dir string) bool
+	SetCustomPlugin(data string) error
+	GetDefaultPlugin() string
 }

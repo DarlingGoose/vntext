@@ -101,6 +101,7 @@ func (r *ProtonRunner) command(g *game.Game) (*exec.Cmd, error) {
 	if err := validateGame(g); err != nil {
 		return nil, err
 	}
+	ensureJapaneseFontsForGame(g)
 
 	proton := util.FirstNonEmpty(g.RunnerPath)
 	if proton == "" {

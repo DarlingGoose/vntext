@@ -178,6 +178,8 @@ func baseEnv(g *game.Game) []string {
 		env = append(env,
 			"LANG="+g.Locale,
 			"LC_ALL="+g.Locale,
+			"LC_CTYPE="+g.Locale,
+			"LC_MESSAGES="+g.Locale,
 		)
 	}
 

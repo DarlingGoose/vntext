@@ -28,6 +28,16 @@ type Engine struct {
 	PrefixRoot string
 }
 
+func (e *Engine) GetDefaultPlugin() string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (e *Engine) SetCustomPlugin(data string) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 // New returns an RPG Maker engine installer with sane defaults.
 // You can override fields directly if your caller already resolved runner/prefix.
 func New() *Engine {

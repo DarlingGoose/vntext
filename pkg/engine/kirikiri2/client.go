@@ -25,13 +25,23 @@ var textLoggerSource string
 var _ engine.Engine = &Engine{}
 
 type Engine struct {
-	Runner      game.RunnerType
-	RunnerPath  string
-	PrefixRoot  string
-	SteamRoot   string
-	Logger      *slog.Logger
-	AutoInstall bool
-	AutoStage   bool
+	Runner        game.RunnerType
+	RunnerPath    string
+	PrefixRoot    string
+	SteamRoot     string
+	Logger        *slog.Logger
+	AutoInstall   bool
+	AutoStage     bool
+	CurrentPlugin string
+}
+
+func (e *Engine) GetDefaultPlugin() string {
+	return textLoggerSource
+}
+
+func (e *Engine) SetCustomPlugin(data string) error {
+	e.CurrentPlugin = data
+	return nil
 }
 
 func New() *Engine {

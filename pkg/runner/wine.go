@@ -97,6 +97,7 @@ func (r *WineRunner) command(g *game.Game) (*exec.Cmd, error) {
 	if err := validateGame(g); err != nil {
 		return nil, err
 	}
+	ensureJapaneseFontsForGame(g)
 
 	wine := util.FirstNonEmpty(g.RunnerPath, "wine")
 

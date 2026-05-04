@@ -58,8 +58,12 @@ func (e *Engine) installXP3TextHook(ctx context.Context, g *game.Game, root stri
 	if err := detectExtractedLayout(&plan); err != nil {
 		return err
 	}
+	plugin := e.GetDefaultPlugin()
+	if e.CurrentPlugin != "" {
+		plugin = e.CurrentPlugin
+	}
 
-	if err := writeTextLogger(plan.LoggerPath, plan.StartupPath); err != nil {
+	if err := writeTextLogger(plugin, plan.LoggerPath, plan.StartupPath); err != nil {
 		return err
 	}
 
@@ -206,7 +210,7 @@ func detectExtractedLayout(plan *xp3PatchPlan) error {
 	return nil
 }
 
-func writeTextLogger(loggerPath string, startupPath string) error {
+func writeTextLogger(pluginData, loggerPath string, startupPath string) error {
 	startup, err := textfile.Read(startupPath)
 	if err != nil {
 		return err
@@ -217,7 +221,7 @@ func writeTextLogger(loggerPath string, startupPath string) error {
 		return err
 	}
 
-	source := normalizeHookNewlines(textLoggerSource, startup.Text)
+	source := normalizeHookNewlines(pluginData, startup.Text)
 
 	return textfile.Write(loggerPath, source, startup.Style, info.Mode().Perm())
 }

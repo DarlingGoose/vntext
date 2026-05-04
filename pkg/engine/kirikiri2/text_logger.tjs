@@ -198,18 +198,22 @@ function __tl_try_infer_speaker_from_repeated_prefix(text)
         return true;
     }
 
-    if (prefix == "" || (prefix.length % 2) != 0)
+    if (prefix == "")
         return false;
 
-    var half = prefix.length / 2;
-    var first = prefix.substring(0, half);
-    var second = prefix.substring(half, prefix.length);
+    var i;
+    for (i = 1; i < prefix.length; i++)
+    {
+        var candidate = prefix.substring(0, i);
 
-    if (first == "" || first != second)
-        return false;
+        if (candidate + candidate == prefix)
+        {
+            __tl_set_current_character_silent(candidate);
+            return true;
+        }
+    }
 
-    __tl_set_current_character_silent(first);
-    return true;
+    return false;
 }
 
 function __tl_normalize_dialogue_text(text)

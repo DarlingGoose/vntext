@@ -91,6 +91,7 @@ func TestTextLoggerNormalizesRepeatedSpeakerPrefixBeforeFlush(t *testing.T) {
 		"function __tl_strip_leading_noise(text)",
 		"if (!__tl_try_infer_speaker_from_repeated_prefix(text))",
 		"function __tl_is_unknown_speaker_prefix(prefix)",
+		"candidate + candidate == prefix",
 		"__tl_strip_speaker_artifacts(text, __tl_current_character);",
 		"var text = __tl_normalize_dialogue_text(__tl_text_buffer);",
 		"__tl_current_character_fresh = false;",

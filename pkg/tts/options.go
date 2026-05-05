@@ -9,8 +9,9 @@ type Options struct {
 	OutputDir  string
 	OutputFile string
 
-	Language string
-	Device   string
+	Language       string
+	Device         string
+	DeviceFallback []string
 
 	Speed         *float64
 	RemoveSilence bool
@@ -37,10 +38,11 @@ type Option func(*Options)
 
 func NewOptions(opts ...Option) Options {
 	o := Options{
-		Model:       "F5TTS_v1_Base",
-		VocoderName: "vocos",
-		Device:      "cpu",
-		Extra:       map[string]string{},
+		Model:          "F5TTS_v1_Base",
+		VocoderName:    "vocos",
+		Device:         "cpu",
+		DeviceFallback: []string{"cpu"},
+		Extra:          map[string]string{},
 	}
 
 	for _, opt := range opts {
@@ -55,6 +57,15 @@ func NewOptions(opts ...Option) Options {
 func WithSpeaker(speaker string) Option {
 	return func(o *Options) {
 		o.Speaker = speaker
+	}
+}
+
+func WithDeviceFallback(devices ...string) Option {
+	return func(o *Options) {
+		o.DeviceFallback = append([]string(nil), devices...)
+		if len(devices) > 0 {
+			o.Device = devices[0]
+		}
 	}
 }
 

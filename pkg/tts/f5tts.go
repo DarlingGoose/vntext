@@ -160,6 +160,80 @@ func (f *F5TTS) Speak(ctx context.Context, text string, opts ...Option) (*Result
 		}
 	}
 
+	devices := o.DeviceFallback
+	if len(devices) == 0 {
+		devices = []string{o.Device}
+	}
+	if len(devices) == 0 || strings.TrimSpace(devices[0]) == "" {
+		devices = []string{"cpu"}
+	}
+
+	var lastResult *Result
+	var lastErr error
+
+	for _, device := range devices {
+		device = strings.TrimSpace(device)
+		if device == "" {
+			continue
+		}
+
+		attemptOpts := o
+		attemptOpts.Device = device
+
+		result, err := f.speakOnce(ctx, text, speaker, attemptOpts)
+		if err == nil {
+			return result, nil
+		}
+
+		lastResult = result
+		lastErr = err
+
+		if isDependencyFailure(err, result) {
+			return result, err
+		}
+
+		if !isDeviceFailure(err, result) {
+			return result, err
+		}
+	}
+
+	if lastErr != nil {
+		return lastResult, lastErr
+	}
+
+	return nil, fmt.Errorf("no TTS device attempts were made")
+}
+func isDependencyFailure(err error, result *Result) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	if result != nil {
+		msg += "\n" + strings.ToLower(result.Stdout)
+		msg += "\n" + strings.ToLower(result.Stderr)
+	}
+
+	needles := []string{
+		"could not load libtorchcodec",
+		"undefined symbol",
+		"torchcodec",
+		"pytorch version",
+		"not compatible with this version of torchcodec",
+		"libavutil.so",
+		"libtorchcodec_core",
+	}
+
+	for _, needle := range needles {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (f *F5TTS) speakOnce(ctx context.Context, text string, speaker Speaker, o Options) (*Result, error) {
 	args := f.buildArgs(text, speaker, o)
 
 	cmd := exec.CommandContext(ctx, f.binary, args...)
@@ -183,12 +257,55 @@ func (f *F5TTS) Speak(ctx context.Context, text string, opts ...Option) (*Result
 	}
 
 	if runErr != nil {
-		return result, fmt.Errorf("run %s: %w: %s", f.binary, runErr, strings.TrimSpace(stderr.String()))
+		return result, fmt.Errorf("run %s with device %q: %w: %s",
+			f.binary,
+			o.Device,
+			runErr,
+			strings.TrimSpace(stderr.String()),
+		)
 	}
 
 	return result, nil
 }
 
+func isDeviceFailure(err error, result *Result) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	if result != nil {
+		msg += "\n" + strings.ToLower(result.Stdout)
+		msg += "\n" + strings.ToLower(result.Stderr)
+	}
+
+	deviceFailureNeedles := []string{
+		"expected one of cpu, cuda",
+		"device type at start of device string",
+		"cuda",
+		"mps",
+		"rocm",
+		"hip",
+		"gpu",
+		"device",
+		"not compiled with cuda",
+		"cuda is not available",
+		"no cuda gpus are available",
+		"invalid device",
+		"hip error",
+		"mps is not available",
+		"out of memory",
+		"cuda out of memory",
+	}
+
+	for _, needle := range deviceFailureNeedles {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+
+	return false
+}
 func (f *F5TTS) Close() error {
 	return nil
 }

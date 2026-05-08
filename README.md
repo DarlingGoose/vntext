@@ -1,499 +1,495 @@
 # vntext
 
-`vntext` is a CLI tool for installing, launching, and extracting text from visual novels and Japanese games.
+`vntext` is a Go CLI for installing, launching, and extracting text from visual novels on Linux. It is centered on `EngineV2`: commands load an installed game config, select one engine instance, then call engine methods for setup, hook install, launch, stop, and text following.
 
-The main goal is to make it easier to run games through Wine or Proton on Linux while also supporting engine-specific text logging hooks. It is designed around small reusable Go packages so the CLI can install games, detect engines, patch scripts, preserve original file encodings, launch games, and collect extracted text logs.
+The default program/config name is `vntext`. Code should use `pkg/app.Name()` instead of hardcoding that name.
 
-## Overview
+## Features
 
-`vntext` can:
+- Detect supported engines and write installed-game configs.
+- Launch games through [`gr`](https://github.com/DarlingGoose/gr) Wine/gamescope runners.
+- Save per-game runner options, Wine options, gamescope options, and text hook filters.
+- Install engine-specific text hooks.
+- Follow extracted game text through `EngineV2.FollowGameText`.
+- Support Textractor/TextReactor for games without native file hooks.
+- Preserve Japanese file encodings and newlines when patching scripts.
 
-- Detect supported game engines
-- Install and stage games into Wine or Proton prefixes
-- Preserve original Japanese script encodings when patching files
-- Install text logging hooks where supported
-- Build and stage a tiny `log.exe` helper
-- Launch games with a configured runner
-- Check whether a configured game is already running
-- Append extracted text to log files
+## Build
 
-## Supported Engines
-
-| Engine | Detection | Text Hook Support | Notes |
-|---|---:|---:|---|
-| Kirikiri 2 | Supported | Supported | Uses TJS/KAG script hooks |
-| RPG Maker | Supported | Partial / Planned | MV/MZ-style detection |
-| Unknown | Supported fallback | Not supported | Can still be installed/run |
-
-Kirikiri 2 is currently the best-supported engine. The text hook works by patching or loading TJS script files and writing captured text to a log file.
-
-RPG Maker detection exists, but text extraction support depends on the specific game/runtime and may require additional JavaScript injection or engine-specific hooks.
-
-## Installation
-
-Build the CLI:
-
-```bash
+```sh
 go build -o vntext .
-````
-
-Or install it locally:
-
-```bash
-go install .
 ```
 
-Then verify:
+Run tests:
 
-```bash
-vntext --help
+```sh
+go test ./...
 ```
 
-## Basic Usage
+## Commands
 
-Install a game from a directory:
+### Install A Game
 
-```bash
+```sh
 vntext install-game /path/to/game
 ```
 
-Print the detected install plan without writing config:
+Useful flags:
 
-```bash
-vntext install-game --print /path/to/game
+```sh
+vntext install-game /path/to/game --print
+vntext install-game /path/to/game --text-hook=false
+vntext install-game /path/to/game --output ./game.json
 ```
 
-Run an installed game:
+Command flow:
 
-```bash
+1. `cmd/installgame.go` calls `gameConfig.InstallGame`.
+2. `gameConfig.InstallGame` calls `auto.SelectEngineV2`.
+3. The selected engine receives `AddGame(ctx, path)`.
+4. If enabled, the selected engine receives `InstallHook(ctx, game)`.
+5. The resulting `game.Game` is written as JSON.
+
+### Install Or Refresh A Hook
+
+```sh
+vntext install-hook "Game Name"
+```
+
+Useful flags:
+
+```sh
+vntext install-hook "Game Name" --engine kirikiri2
+vntext install-hook "Game Name" --hook-filter "@13F548:KSH_dl.exe"
+vntext install-hook "Game Name" --clear-hook-filter
+```
+
+Command flow:
+
+1. Load installed game configs.
+2. Select an engine through `auto.DefaultEngineSelectorV2()`.
+3. Call `EngineV2.InstallHook(ctx, game)`.
+4. Save hook metadata and default text hook filters back to the game config.
+
+`--hook-filter` is mainly for Textractor/TextReactor. It stores `game.TextHookFilter`, which `FollowGameText` uses by default.
+
+### Run A Game
+
+```sh
 vntext run-game "Game Name"
 ```
 
-If no game name or flags are provided, `run-game` can show an interactive TUI selector using the default config location:
+With text output:
 
-```bash
-vntext run-game
+```sh
+vntext run-game "Game Name" --sync --follow
 ```
 
-The selector lists previously installed games and allows one to be launched.
+Useful flags:
+
+```sh
+vntext run-game --list
+vntext run-game "Game Name" --virtual-desktop 1280x720
+vntext run-game "Game Name" --virtual-desktop off
+vntext run-game "Game Name" --sync --follow --log-file /path/to/vntext.log
+```
+
+Command flow:
+
+1. Load installed game configs.
+2. Select an engine through the cached v2 selector.
+3. Call `EngineV2.RunGame(ctx, game)`.
+4. On `--sync`, wait for the returned `gr.Process`.
+5. On `--follow`, call `EngineV2.FollowGameText(ctx, game)`.
+6. On shutdown, call `EngineV2.StopGame(ctx, proc)`.
+
+For Wine games, `gr.Process.WinePID` is used when available so `--sync` follows the actual Wine game process instead of only the host Wine launcher.
+
+### Manage Runner Config
+
+```sh
+vntext runner-config "Game Name"
+```
+
+Set Wine options:
+
+```sh
+vntext runner-config "Game Name" \
+  --runner wine \
+  --wine-bin /usr/bin/wine \
+  --wine-prefix ~/.config/vntext/prefixes/example \
+  --arch win64 \
+  --env LANG=ja_JP.UTF-8
+```
+
+Set gamescope options:
+
+```sh
+vntext runner-config "Game Name" \
+  --runner gamescope \
+  --gamescope-bin /usr/bin/gamescope \
+  --resolution 1280x720 \
+  --output-resolution 1280x720 \
+  --fullscreen
+```
+
+Manage Textractor default filters:
+
+```sh
+vntext runner-config "Game Name" --text-hook-filter "@dialogue.dll:1234"
+vntext runner-config "Game Name" --clear-text-hook-filter
+```
+
+Import/export combined vntext runner profiles:
+
+```sh
+vntext runner-config "Game Name" --export ./runner-profile.json
+vntext runner-config "Game Name" --import ./runner-profile.json
+```
+
+Import/export native `gr` runner configs:
+
+```sh
+vntext runner-config "Game Name" --export-wine-config ./wine.json
+vntext runner-config "Game Name" --import-wine-config ./wine.json
+vntext runner-config "Game Name" --export-gamescope-config ./gamescope.json
+vntext runner-config "Game Name" --import-gamescope-config ./gamescope.json
+```
 
 ## Game Configs
 
-Installed games are saved as JSON config files in the default config/cache location used by `vntext`.
-
-A game config includes information such as:
-
-| Field           | Description                             |
-| --------------- | --------------------------------------- |
-| `Name`          | Display name for the game               |
-| `Runner`        | Runner type, such as `wine` or `proton` |
-| `Executable`    | Path to the game executable             |
-| `Prefix`        | Wine/Proton prefix path                 |
-| `VirtualDesktop` | Wine desktop size; defaults to `1280x720`, set `off` to disable |
-| `Engine`        | Detected engine type                    |
-| `RequiresSteam` | Whether Steam is required               |
-| `SteamAppID`    | Steam app id, if applicable             |
-| `IconPath`      | Optional icon path                      |
-| `ImagePath`     | Optional preview image path             |
-
-Wine and Proton launches run inside a Wine virtual desktop by default. This keeps games that switch to fullscreen contained in a normal window, which avoids common black-screen issues on Linux display stacks. Override it for one run with:
-
-```bash
-vntext run-game "Game Name" --virtual-desktop 1920x1080
-vntext run-game "Game Name" --virtual-desktop off
-```
-
-## Text Logging
-
-For supported engines, `vntext` can install a text logger hook.
-
-The general flow is:
-
-1. Detect the game engine.
-2. Find the relevant startup or system script.
-3. Patch the script while preserving its original encoding and newline style.
-4. Build or stage a small `log.exe` helper.
-5. Launch the game.
-6. Game text is appended to a log file.
-
-For Kirikiri 2 games, many script files are encoded as Shift-JIS or CP932 with CRLF line endings. `vntext` preserves these formats when patching files.
-
-## Encoding Preservation
-
-Japanese game script files often look like this when inspected with `file`:
+Default location:
 
 ```text
-data/startup.tjs: ASCII text, with CRLF line terminators
-data/system/YesNoDialog.tjs: JavaScript source, Non-ISO extended-ASCII text, with CRLF line terminators
+~/.config/<program-name>/games/*.json
 ```
 
-The second file is often Shift-JIS or CP932.
+With the default program name:
 
-`vntext` uses the `textfile` package to:
+```text
+~/.config/vntext/games/*.json
+```
 
-* Detect ASCII, UTF-8, UTF-8 BOM, UTF-16 BOM, Shift-JIS/CP932, and EUC-JP
-* Detect LF, CRLF, or CR line endings
-* Decode text to UTF-8 internally
-* Write files back using their original encoding and newline style
+Important fields in `game.Game`:
 
-This prevents editors or patching code from accidentally converting Japanese scripts into UTF-8 or changing CRLF to LF.
+| JSON field | Purpose |
+|---|---|
+| `name` | Display name. |
+| `game_path` | Game root. |
+| `executable` | Executable to launch. |
+| `working_dir` | Launch working directory. |
+| `runner` | `wine` or `gamescope`. |
+| `runner_path` | Primary runner binary. For Wine this is Wine; for gamescope this is gamescope. |
+| `runner_config` | Common `gr.Config` launch options. |
+| `wine_config` | Native `gr/wine.Options`. |
+| `gamescope_config` | Native `gr/gamescope.Options`. |
+| `prefix_path` | Wine prefix path. |
+| `virtual_desktop` | Wine desktop size. `off` disables it. |
+| `locale` | Wine locale override. Empty means detect with `autorunner.DetectWineLang(executable)`. |
+| `text_hook_log_file` | Log file used by file-hook engines. |
+| `text_hook_filter` | Default Textractor hook groups to follow. |
+| `engine_name` | Engine used for this config. |
 
-## Using the Internal Packages
+## Supported Engines
 
-The CLI is built from reusable packages. These packages can also be used directly by other tools inside the repo.
+| Engine | Package | AddGame | InstallHook | RunGame | FollowGameText |
+|---|---|---:|---:|---:|---:|
+| Kirikiri2 | `pkg/engine/kirikiri2` | Yes | TJS/log.exe hook | Wine/gamescope through `enginerun` | Follows `vntext.log` |
+| RPG Maker MV/MZ | `pkg/engine/rpgmaker` | Yes | JavaScript plugin hook | Wine/gamescope through `enginerun` | Follows plugin log |
+| TextReactor/Textractor | `pkg/engine/textreactor` | Yes | Runtime Textractor install | Defaults to Wine | Follows Textractor client |
 
-## `pkg/textfile`
+## EngineV2
 
-Use this package when editing Japanese game files.
+Commands should call `EngineV2`, not legacy engine/runner APIs.
 
-### Read a file, modify text, and preserve encoding/newlines
+Current interface:
 
 ```go
-tf, err := textfile.Read("data/startup.tjs")
-if err != nil {
-	return err
+type EngineV2 interface {
+	Name() string
+	IsEngine(dir string) bool
+
+	AddGame(ctx context.Context, filepath string) (*game.Game, error)
+	InstallHook(ctx context.Context, game *game.Game) error
+	RunGame(ctx context.Context, game *game.Game) (*gr.Process, error)
+	StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error)
+
+	GetFile(g *game.Game, file string) (*engine.EngineFileInfo, error)
+	FollowGameText(ctx context.Context, game *game.Game, opts ...engine.FollowGameOptions) (chan engine.Line, error)
+
+	Shutdown() error
+	ManagedGames() []*game.Game
+	GetTextractor(game *game.Game) *textractor.Client
 }
-
-updated := tf.Text
-
-hook := `Scripts.execStorage("text_logger.tjs");`
-if !strings.Contains(updated, hook) {
-	if !strings.HasSuffix(updated, "\n") {
-		updated += "\n"
-	}
-	updated += hook + "\n"
-}
-
-return textfile.Write("data/startup.tjs", updated, tf.Style, 0644)
 ```
 
-### Update in place
+### Command-To-Method Mapping
+
+| Command | EngineV2 methods called |
+|---|---|
+| `install-game` | `IsEngine`, `AddGame`, optionally `InstallHook` |
+| `install-hook` | `InstallHook` |
+| `run-game` | `RunGame`, optionally `FollowGameText`, `StopGame` |
+| `runner-config` | Does not call engine methods; edits saved `game.Game` runner/text fields |
+
+## Implementing An EngineV2
+
+Use the existing engines as templates:
+
+- `pkg/engine/kirikiri2/v2.go`
+- `pkg/engine/rpgmaker/v2.go`
+- `pkg/engine/textreactor/textractor.go`
+
+Minimum implementation shape:
+
+```go
+package myengine
+
+import (
+	"context"
+
+	"github.com/DarlingGoose/gr"
+	"github.com/DarlingGoose/tr/pkg/textractor"
+	"github.com/DarlingGoose/vntext/pkg/engine"
+	"github.com/DarlingGoose/vntext/pkg/engine/enginerun"
+	"github.com/DarlingGoose/vntext/pkg/game"
+)
+
+type Engine struct{}
+
+var _ engine.EngineV2 = (*Engine)(nil)
+
+func (e *Engine) Name() string { return "myengine" }
+
+func (e *Engine) IsEngine(path string) bool {
+	// Detect by files, directories, executable metadata, etc.
+	return false
+}
+
+func (e *Engine) AddGame(ctx context.Context, path string) (*game.Game, error) {
+	g := &game.Game{
+		Name:        "Example",
+		GamePath:    path,
+		Executable:  "/path/to/Game.exe",
+		WorkingDir:  "/path/to",
+		Runner:      game.RunnerWine,
+		PrefixPath:  "/path/to/prefix",
+		EngineName:  e.Name(),
+		Locale:      "",
+	}
+
+	if err := enginerun.ConfigureRunner(g); err != nil {
+		return nil, err
+	}
+
+	return g, nil
+}
+
+func (e *Engine) InstallHook(ctx context.Context, g *game.Game) error {
+	// Patch files, install plugins, or no-op for runtime hook engines.
+	return nil
+}
+
+func (e *Engine) RunGame(ctx context.Context, g *game.Game) (*gr.Process, error) {
+	return enginerun.RunGame(ctx, g)
+}
+
+func (e *Engine) StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
+	return enginerun.StopGame(ctx, proc)
+}
+
+func (e *Engine) FollowGameText(ctx context.Context, g *game.Game, opts ...engine.FollowGameOptions) (chan engine.Line, error) {
+	return enginerun.FollowGameText(ctx, g, opts...)
+}
+
+func (e *Engine) GetFile(g *game.Game, file string) (*engine.EngineFileInfo, error) {
+	return enginerun.UnsupportedFile(g, file)
+}
+
+func (e *Engine) Shutdown() error { return nil }
+func (e *Engine) ManagedGames() []*game.Game { return nil }
+func (e *Engine) GetTextractor(g *game.Game) *textractor.Client { return nil }
+```
+
+### AddGame Responsibilities
+
+`AddGame` should return a complete runnable `game.Game`.
+
+Set at least:
+
+- `Name`
+- `GamePath`
+- `Executable`
+- `WorkingDir`
+- `Runner`
+- `PrefixPath`
+- `EngineName`
+- `CreatedAt`
+- `TextHookLogFile` if the engine follows a file
+
+Then call:
+
+```go
+err := enginerun.ConfigureRunner(g)
+```
+
+`ConfigureRunner` uses `gr/autorunner.AutoOptionsForExe` and `autorunner.DetectWineLang`. If `game.Locale` is empty, the executable is scanned for Wine locale markers/resources. If `game.Locale` is set, it wins over stored runner envs.
+
+### InstallHook Responsibilities
+
+`InstallHook` should be idempotent. Running it repeatedly should not duplicate script patches or plugin entries.
+
+For file-patching engines:
+
+- Detect the target script/plugin file.
+- Preserve encoding and line endings using `pkg/textfile`.
+- Update `g.TextHookLogFile`.
+
+For runtime hook engines such as TextReactor:
+
+- Install required runtime files if needed.
+- It can be a no-op if attachment happens in `FollowGameText`.
+
+### RunGame And StopGame
+
+Most Wine-backed engines should delegate:
+
+```go
+return enginerun.RunGame(ctx, g)
+```
+
+and:
+
+```go
+return enginerun.StopGame(ctx, proc)
+```
+
+`enginerun.RunGame` handles:
+
+- Wine target/args.
+- Wine virtual desktop.
+- Wine/gamescope runner selection.
+- Saved `runner_config`, `wine_config`, and `gamescope_config`.
+- Locale env merging.
+
+`enginerun.StopGame` prefers `gr.Process.WinePID` when available, so it stops the Wine process instead of accidentally killing an unrelated Linux PID.
+
+### FollowGameText Responsibilities
+
+`FollowGameText` should return normalized `engine.Line` values.
+
+For file-backed hooks:
+
+```go
+return enginerun.FollowGameText(ctx, g, opts...)
+```
+
+For Textractor/TextReactor:
+
+- Locate the running Wine game process.
+- Attach a `textractor.Client`.
+- Use `game.TextHookFilter` as the default hook group filter.
+- Convert `textractor.Line` to `engine.Line`.
+
+`run-game --sync --follow` calls this method. Do not make the command layer tail files directly.
+
+### SelectorV2
+
+Engine instances are created once by the cached selector:
+
+```go
+selector := auto.DefaultEngineSelectorV2()
+eng, err := selector.Select(path)
+```
+
+By name:
+
+```go
+eng := selector.ByName("kirikiri2")
+```
+
+To register a new engine, add it in `NewEngineSelectorV2` in `pkg/engine/auto/auto.go`:
+
+```go
+engines: []engine.EngineV2{
+	rpgmaker.New(),
+	kirikiri2.New(),
+	&textreactor.Client{ProgramName: programName},
+	myengine.New(),
+},
+```
+
+The selector should own one instance of each engine. This matters for engines such as TextReactor that keep attached clients in memory.
+
+## Text And Encoding
+
+Japanese game scripts often use Shift-JIS/CP932 and CRLF. Use `pkg/textfile` for script edits:
 
 ```go
 err := textfile.Update("data/startup.tjs", func(s string, style textfile.FileStyle) (string, error) {
 	line := `Scripts.execStorage("text_logger.tjs");`
-
 	if strings.Contains(s, line) {
 		return s, nil
 	}
-
 	if !strings.HasSuffix(s, "\n") {
 		s += "\n"
 	}
-
-	s += line + "\n"
-	return s, nil
+	return s + line + "\n", nil
 })
 ```
 
-### Replace text while preserving the original file style
-
-```go
-err := textfile.Replace(
-	"data/system/YesNoDialog.tjs",
-	"System.inform(\"old\");",
-	"System.inform(\"new\");",
-	1,
-)
-```
-
-## `pkg/engine`
-
-Use this package for engine detection.
-
-Expected responsibilities:
-
-* Identify the engine used by a game directory
-* Return engine metadata
-* Choose the correct installer or hook implementation
-
-Example shape:
-
-```go
-detected, err := engine.Detect(gameDir)
-if err != nil {
-	return err
-}
-
-fmt.Println("engine:", detected.Name)
-```
-
-Engine detection should be used before installing hooks because each engine needs a different strategy.
-
-## `pkg/engine/kirikiri2`
-
-Use this package for Kirikiri-specific install and hook behavior.
-
-Expected responsibilities:
-
-* Detect Kirikiri 2 games
-* Locate `startup.tjs` or other relevant scripts
-* Stage extracted or patched files
-* Install TJS/KAG text logger hooks
-* Preserve Shift-JIS/CP932 and CRLF formatting
-
-Example shape:
-
-```go
-installer := kirikiri2.NewInstaller()
-
-err := installer.Install(ctx, gameConfig)
-if err != nil {
-	return err
-}
-```
-
-For Kirikiri 2, script patching should go through `pkg/textfile` instead of `os.ReadFile` / `os.WriteFile` directly.
-
-## `pkg/engine/kirikiri2/log`
-
-Use this package for building or staging the log helper.
-
-The log helper is a small executable that receives text from the game and appends it to a log file.
-
-Example build command used internally:
-
-```go
-cmd := exec.CommandContext(
-	ctx,
-	"go",
-	"build",
-	"-trimpath",
-	"-ldflags=-H=windowsgui -s -w",
-	"-o",
-	tmpOut,
-	".",
-)
-
-cmd.Dir = logDir
-cmd.Env = append(os.Environ(),
-	"GOOS=windows",
-	"GOARCH=amd64",
-)
-```
-
-The important part is that the command runs from the temporary log helper source directory:
-
-```go
-cmd.Dir = logDir
-```
-
-and builds:
-
-```text
-.
-```
-
-instead of passing the temp directory as the package argument.
-
-## `pkg/game`
-
-Use this package for game configuration structs and config persistence.
-
-Expected responsibilities:
-
-* Represent installed games
-* Store runner, executable, prefix, engine, icon, image, and Steam fields
-* Load and save game configs
-* Derive normalized game names
-
-Example shape:
-
-```go
-cfg := &game.Game{
-	Name:       "Example Game",
-	Runner:     "proton",
-	Executable: "/path/to/Game.exe",
-	Prefix:     "/path/to/prefix",
-	Engine:     "kirikiri2",
-}
-
-err := game.SaveConfig(cfg)
-if err != nil {
-	return err
-}
-```
-
-## `pkg/runner`
-
-Use this package to launch games and check process status.
-
-Runner interface:
-
-```go
-type Runner interface {
-	Run(game *game.Game) (*ProcessStatus, error)
-	RunBackground(game *game.Game) (*ProcessStatus, error)
-	IsRunning(game *game.Game) (*ProcessStatus, error)
-	Stop(p *ProcessStatus)
-}
-```
-
-Process status:
-
-```go
-type ProcessStatus struct {
-	PID     int
-	Message string
-	Status  int
-}
-```
-
-Example usage:
-
-```go
-r := runner.NewProtonRunner()
-
-status, err := r.RunBackground(cfg)
-if err != nil {
-	return err
-}
-
-fmt.Println("started pid:", status.PID)
-```
-
-Checking whether a game is already running:
-
-```go
-status, err := r.IsRunning(cfg)
-if err != nil {
-	return err
-}
-
-if status.Status == 1 {
-	fmt.Println("game is running:", status.PID)
-}
-```
-
-## `pkg/util`
-
-Use this package for shared helpers that do not belong to a specific engine, runner, or game config package.
-
-Good candidates for `pkg/util`:
-
-* Path normalization
-* File existence checks
-* Directory creation
-* Safe copy helpers
-* Slug generation
-* Executable discovery
-
-## Common Workflows
-
-Install a Kirikiri 2 game:
-
-```bash
-vntext install-game /path/to/game
-```
-
-Print install details first:
-
-```bash
-vntext install-game --print /path/to/game
-```
-
-Run a game by name:
-
-```bash
-    vntext run-game "testname" 
-```
-
-
-Run the interactive selector, and tail the logs,
-
-- *sync* will keep this application and the game in sync,   
-  -  endgame -> kill vntext
-  - stop vntext -> kill game
-
-```bash
-vntext run-game --sync --follow 
-```
-
-
-
-Check generated logs:
-
-```bash
-find ~/.cache -iname 'vntext.log' -o -iname 'krkr.console.log'
-```
+Avoid `os.WriteFile` for script patching unless the file is known to be UTF-8 and newline-insensitive.
 
 ## Debugging
 
-If a hook is installed but no text appears, check:
+No text from `--sync --follow`:
 
-1. The game engine was detected correctly.
-2. The patched script was actually loaded by the game.
-3. The patched file preserved its original encoding.
-4. The game can execute `log.exe`.
-5. The log file path is writable.
-6. Wine or Proton did not block the helper executable.
-7. The game text is not rendered only as images.
+1. Confirm `run-game` selected the expected engine.
+2. Confirm `TextHookLogFile` exists for file-backed engines.
+3. Confirm `EngineV2.FollowGameText` is being used.
+4. For Wine games, confirm `gr.Process.WinePID` is populated.
+5. For Textractor, confirm `TextHookFilter` matches the hook group.
+
+Wrong locale:
+
+1. Check `game.Locale`.
+2. If empty, `autorunner.DetectWineLang(game.Executable)` should detect the locale.
+3. Check saved `runner_config.envs`; `game.Locale` or detected locale should override stale `C.UTF-8`.
 
 Useful commands:
 
-```bash
-file data/startup.tjs
-```
-
-```bash
+```sh
+vntext runner-config "Game Name"
+file /path/to/startup.tjs
 find . -iname '*.tjs' -o -iname '*.ks'
-find . -iname '*console*' -o -iname '*log*'
+find ~/.config/vntext/games -name '*.json'
 ```
 
-## Development
+## Project Layout
 
-Run all tests:
-
-```bash
-go test ./...
+```text
+cmd/                         CLI commands
+pkg/app                      Program name defaults
+pkg/game                     Installed game config structs
+pkg/gameConfig               Load/save installed game configs
+pkg/engine                   Engine interfaces and shared types
+pkg/engine/auto              EngineV2 selector
+pkg/engine/enginerun         Shared Wine/gamescope/follow helpers
+pkg/engine/kirikiri2         Kirikiri2 detection/hook support
+pkg/engine/rpgmaker          RPG Maker detection/hook support
+pkg/engine/textreactor       Textractor/TextReactor support
+pkg/textfile                 Encoding/newline preserving file edits
+pkg/util                     Shared filesystem/path helpers
 ```
 
-Run only textfile tests:
+## Current Status
 
-```bash
-go test ./pkg/textfile
-```
-
-Build the CLI:
-
-```bash
-go build -o vntext .
-```
-
-
-## Design Notes
-
-The project should avoid directly editing Japanese script files with `os.ReadFile` and `os.WriteFile` unless the file is known to be UTF-8.
-
-Use `pkg/textfile` for script patching because many older Japanese games use Shift-JIS/CP932 and CRLF line endings.
-
-The CLI should keep engine-specific behavior inside engine packages. The command layer should mostly coordinate:
-
-1. Load config.
-2. Detect engine.
-3. Install or patch through the engine package.
-4. Save config.
-5. Run through the runner package.
-
-This keeps the command code small and makes it easier to add new engines later.
-
-## Project Status
-
-| Area        | Status                      |
-| ----------- |-----------------------------|
-| CLI install | Working / in progress       |
-| CLI run     | Working / in progress       |
-| TUI select  | Planned / in progress       |
-| Kirikiri 2  | Supported                   |
-| RPG Maker   | Supported |
-| Textfile    | Encoding preservation       |
-| Log helper  | Working                     |
-
-
-# TODO
-- fix readme
-- can you also help me finish textractor? i want a way to set the default hook to follow filter on in the game     
-- need to fix gamescope game launch ^Cstopping Prison Battleship-2
-  ^CError: game exited with error: signal: killed
-- need to use followtext instead of just following the file
-- need to use selectorv2 client
+| Area | Status |
+|---|---|
+| EngineV2 command flow | Active path |
+| Kirikiri2 | Supported |
+| RPG Maker MV/MZ | Supported |
+| TextReactor/Textractor | Supported |
+| Wine runner config | Supported |
+| Gamescope runner config | Supported |
+| Encoding-preserving patching | Supported |

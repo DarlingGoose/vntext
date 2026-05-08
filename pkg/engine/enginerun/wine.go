@@ -12,6 +12,7 @@ import (
 
 	"github.com/DarlingGoose/gr"
 	"github.com/DarlingGoose/gr/autorunner"
+	"github.com/DarlingGoose/gr/gamescope"
 	"github.com/DarlingGoose/gr/wine"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/util"
@@ -46,14 +47,19 @@ func RunGame(ctx context.Context, g *game.Game) (*gr.Process, error) {
 }
 
 func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
-	_ = ctx
 	if proc == nil {
 		return nil, errors.New("process is nil")
 	}
 
-	if proc.Cmd != nil && proc.Cmd.Process != nil {
-		if err := proc.Cmd.Process.Kill(); err != nil {
-			return proc, err
+	if proc.Cmd != nil {
+		if proc.Cmd.Cancel != nil {
+			if err := proc.Cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				return proc, err
+			}
+		} else if proc.Cmd.Process != nil {
+			if err := proc.Cmd.Process.Kill(); err != nil {
+				return proc, err
+			}
 		}
 		proc.Status = gr.StatusStopped
 		return proc, nil
@@ -108,19 +114,99 @@ func wineBinFromProcess(proc *gr.Process) string {
 }
 
 func RunnerForGame(g *game.Game) (gr.Runner, error) {
-
-	if strings.TrimSpace(g.RunnerPath) != "" {
-		return wine.New(
-			wine.WithWineBin(g.RunnerPath),
-			wine.WithDefaultPrefix(g.PrefixPath),
-		), nil
+	if g.Runner == game.RunnerGamescope {
+		return gamescope.NewFromOptions(gamescopeOptionsForGame(g)), nil
 	}
 
 	if g.Runner == "" || g.Runner == game.RunnerWine {
+		if hasWineConfig(g.WineConfig) || strings.TrimSpace(g.RunnerPath) != "" {
+			return wine.NewFromOptions(wineOptionsForGame(g)), nil
+		}
 		return autorunner.NewRunner(g.PrefixPath)
 	}
 
 	return nil, fmt.Errorf("%s runner is not supported by EngineV2 GR launcher", g.Runner)
+}
+
+func wineOptionsForGame(g *game.Game) wine.Options {
+	cfg := wine.ApplyOptions()
+	if hasWineConfig(g.WineConfig) {
+		cfg = *g.WineConfig
+	}
+	if strings.TrimSpace(g.RunnerPath) != "" {
+		cfg.WineBin = g.RunnerPath
+	}
+	if strings.TrimSpace(cfg.DefaultPrefix) == "" {
+		cfg.DefaultPrefix = g.PrefixPath
+	}
+	if strings.TrimSpace(cfg.WineBin) == "" {
+		cfg.WineBin = "wine"
+	}
+	if strings.TrimSpace(cfg.WineTricksBin) == "" {
+		cfg.WineTricksBin = "winetricks"
+	}
+	if strings.TrimSpace(cfg.Name) == "" {
+		cfg.Name = "wine"
+	}
+	return cfg
+}
+
+func gamescopeOptionsForGame(g *game.Game) gamescope.Options {
+	cfg := gamescope.ApplyOptions()
+	if hasGamescopeConfig(g.GamescopeConfig) {
+		cfg = *g.GamescopeConfig
+	}
+	cfg.UseWine = true
+	if strings.TrimSpace(g.RunnerPath) != "" {
+		cfg.GamescopeBin = g.RunnerPath
+	}
+	if strings.TrimSpace(cfg.DefaultWinePrefix) == "" {
+		cfg.DefaultWinePrefix = g.PrefixPath
+	}
+	if strings.TrimSpace(cfg.GamescopeBin) == "" {
+		cfg.GamescopeBin = "gamescope"
+	}
+	if strings.TrimSpace(cfg.WineBin) == "" {
+		cfg.WineBin = "wine"
+	}
+	if strings.TrimSpace(cfg.WineServerBin) == "" {
+		cfg.WineServerBin = "wineserver"
+	}
+	if strings.TrimSpace(cfg.Name) == "" {
+		cfg.Name = "gamescope"
+	}
+	return cfg
+}
+
+func hasWineConfig(c *wine.Options) bool {
+	return c != nil && (c.Name != "" ||
+		c.WineBin != "" ||
+		c.WineTricksBin != "" ||
+		c.DefaultPrefix != "")
+}
+
+func hasGamescopeConfig(c *gamescope.Options) bool {
+	return c != nil && (c.Name != "" ||
+		c.GamescopeBin != "" ||
+		c.WineBin != "" ||
+		c.WineServerBin != "" ||
+		c.DefaultWinePrefix != "" ||
+		c.UseWine ||
+		c.WineStartWait ||
+		c.KillWineOnExit ||
+		c.Width != 0 ||
+		c.Height != 0 ||
+		c.RefreshRate != 0 ||
+		c.OutputWidth != 0 ||
+		c.OutputHeight != 0 ||
+		c.Fullscreen ||
+		c.Borderless ||
+		c.ForceGrab ||
+		c.SteamDeckMode ||
+		c.ExposeWayland ||
+		c.Scaler != "" ||
+		c.Filter != "" ||
+		len(c.ExtraArgs) > 0)
 }
 
 func WineOptions(g *game.Game, args ...string) ([]gr.Option, error) {
@@ -137,7 +223,7 @@ func WineOptions(g *game.Game, args ...string) ([]gr.Option, error) {
 	defaults, err := autorunner.AutoOptionsForExe(g.Executable, autorunner.DefaultOptionsConfig{
 		WinePrefix: g.PrefixPath,
 		WorkingDir: WorkingDir(g),
-		WineBin:    g.RunnerPath,
+		WineBin:    WineBin(g),
 		Args:       args,
 		Env:        WineEnv(g),
 	})
@@ -158,7 +244,7 @@ func ConfigureRunner(g *game.Game) error {
 	defaults, err := autorunner.AutoOptionsForExe(g.Executable, autorunner.DefaultOptionsConfig{
 		WinePrefix: g.PrefixPath,
 		WorkingDir: WorkingDir(g),
-		WineBin:    g.RunnerPath,
+		WineBin:    WineBin(g),
 		Env:        WineEnv(g),
 	})
 	if err != nil {
@@ -181,6 +267,16 @@ func fallbackConfig(g *game.Game) gr.Config {
 		opts = append(opts, gr.WithEnv(env...))
 	}
 	return gr.NewConfig(opts...)
+}
+
+func WineBin(g *game.Game) string {
+	if g != nil && g.Runner == game.RunnerGamescope {
+		return ""
+	}
+	if g == nil {
+		return ""
+	}
+	return g.RunnerPath
 }
 
 func hasRunnerConfig(c gr.Config) bool {

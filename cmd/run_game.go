@@ -1,21 +1,21 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/DarlingGoose/gr"
 	"github.com/DarlingGoose/vntext/pkg/app"
+	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/gameConfig"
 
@@ -155,14 +155,14 @@ func NewRunGameCommand() *cobra.Command {
 		&opts.Follow,
 		"follow",
 		false,
-		"tail the game log while running; requires --sync",
+		"follow game text while running; requires --sync",
 	)
 
 	cmd.Flags().StringVar(
 		&opts.LogFile,
 		"log-file",
 		"",
-		"log file to follow when --follow is enabled",
+		"override text hook log file for engines that follow a log file",
 	)
 
 	return cmd
@@ -189,16 +189,17 @@ func RunSelectedGame(ctx context.Context, g *game.Game, opts RunGameOptions) (*G
 
 	copy := *g
 	copy.RunnerConfig.Background = opts.Background || opts.Sync
-
+	slog.Info("running game")
 	proc, err := eng.RunGame(ctx, &copy)
 	if err != nil {
 		return nil, err
 	}
-
+	slog.Info("proc", "pid", proc.PID, "wine", proc.WinePID)
 	status := processStatusFromGR(proc)
 	if status == nil {
 		status = &GameProcessStatus{Status: processStatusExited}
 	}
+	status.engine = eng
 	status.stop = func() error {
 		_, err := eng.StopGame(ctx, proc)
 		return err
@@ -240,6 +241,7 @@ type GameProcessStatus struct {
 	Status  int
 
 	proc   *gr.Process
+	engine engine.EngineV2
 	cancel context.CancelFunc
 	waitCh chan error
 	stop   func() error
@@ -299,26 +301,14 @@ func SyncGameProcess(
 	var wg sync.WaitGroup
 
 	if opts.Follow {
-		logFile := strings.TrimSpace(opts.LogFile)
-		if logFile == "" {
-			logFile = DefaultGameLogPath(g)
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 
-		if logFile != "" {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-
-				err := FollowFile(sigCtx, out, logFile, FollowFileOptions{
-					FromEnd:       true,
-					PollInterval:  250 * time.Millisecond,
-					MissingIsOkay: true,
-				})
-				if err != nil && !errors.Is(err, context.Canceled) {
-					fmt.Fprintf(out, "follow log error: %v\n", err)
-				}
-			}()
-		}
+			if err := FollowGameText(sigCtx, out, g, status, opts); err != nil && !errors.Is(err, context.Canceled) {
+				fmt.Fprintf(out, "follow text error: %v\n", err)
+			}
+		}()
 	}
 
 	waitCh := make(chan error, 1)
@@ -353,82 +343,64 @@ func SyncGameProcess(
 	return nil
 }
 
-type FollowFileOptions struct {
-	FromEnd       bool
-	PollInterval  time.Duration
-	MissingIsOkay bool
-}
-
-func FollowFile(ctx context.Context, out io.Writer, path string, opts FollowFileOptions) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return errors.New("log file path is required")
-	}
-
-	if opts.PollInterval <= 0 {
-		opts.PollInterval = 250 * time.Millisecond
-	}
-
-	var f *os.File
-
-	for {
-		file, err := os.Open(path)
-		if err == nil {
-			f = file
-			break
-		}
-
-		if !opts.MissingIsOkay {
-			return fmt.Errorf("open log file %s: %w", path, err)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(opts.PollInterval):
-		}
-	}
-
-	defer f.Close()
-
-	if opts.FromEnd {
-		if _, err := f.Seek(0, io.SeekEnd); err != nil {
-			return fmt.Errorf("seek log file %s: %w", path, err)
-		}
-	}
-
-	reader := bufio.NewReader(f)
-
-	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			fmt.Fprint(out, line)
-		}
-
-		if err == nil {
-			continue
-		}
-
-		if !errors.Is(err, io.EOF) {
-			return fmt.Errorf("read log file %s: %w", path, err)
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(opts.PollInterval):
-		}
-	}
-}
-
-func DefaultGameLogPath(g *game.Game) string {
+func FollowGameText(ctx context.Context, out io.Writer, g *game.Game, status *GameProcessStatus, opts RunGameOptions) error {
 	if g == nil {
+		return errors.New("game is nil")
+	}
+
+	eng := statusEngine(status)
+	if eng == nil {
+		var err error
+		eng, err = selectHookEngine(g, "")
+		if err != nil {
+			return err
+		}
+	}
+
+	followGame := *g
+	if logFile := strings.TrimSpace(opts.LogFile); logFile != "" {
+		followGame.TextHookLogFile = logFile
+	}
+
+	lines, err := eng.FollowGameText(ctx, &followGame)
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case line, ok := <-lines:
+			if !ok {
+				return nil
+			}
+			if text := formatFollowLine(line); text != "" {
+				fmt.Fprintln(out, text)
+			}
+		}
+	}
+}
+
+func statusEngine(status *GameProcessStatus) engine.EngineV2 {
+	if status == nil {
+		return nil
+	}
+	return status.engine
+}
+
+func formatFollowLine(line engine.Line) string {
+	text := strings.TrimSpace(line.Text)
+	if text == "" {
+		text = strings.TrimSpace(line.Raw)
+	}
+	if text == "" {
 		return ""
 	}
 
-	if strings.TrimSpace(g.TextHookLogFile) != "" {
-		return g.TextHookLogFile
+	speaker := strings.TrimSpace(line.Speaker)
+	if speaker == "" {
+		return text
 	}
-
-	return ""
+	return speaker + ": " + text
 }

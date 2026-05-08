@@ -65,6 +65,7 @@ type Game struct {
 	StagedPath    string `json:"staged_path,omitempty"`
 
 	TextHookLogFile string   `json:"text_hook_log_file"`
+	TextHookFilter  []string `json:"text_hook_filter,omitempty"`
 	EnvVars         []EnvVar `json:"env_vars"`
 	EngineName      string   `json:"engine_name"`
 }

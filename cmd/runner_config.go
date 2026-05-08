@@ -36,10 +36,12 @@ type RunnerConfigOptions struct {
 	Arch         string
 	Background   bool
 
-	ClearEnv     bool
-	Env          []string
-	ClearDeps    bool
-	Dependencies []string
+	ClearEnv            bool
+	Env                 []string
+	ClearDeps           bool
+	Dependencies        []string
+	TextHookFilter      []string
+	ClearTextHookFilter bool
 
 	Resolution       string
 	OutputResolution string
@@ -63,6 +65,7 @@ type runnerProfile struct {
 	RunnerConfig    gr.Config       `json:"runner_config,omitempty"`
 	WineConfig      any             `json:"wine_config,omitempty"`
 	GamescopeConfig any             `json:"gamescope_config,omitempty"`
+	TextHookFilter  []string        `json:"text_hook_filter,omitempty"`
 }
 
 func NewRunnerConfigCommand() *cobra.Command {
@@ -143,6 +146,8 @@ func NewRunnerConfigCommand() *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.Env, "env", nil, "append runner env var KEY=VALUE")
 	cmd.Flags().BoolVar(&opts.ClearDeps, "clear-deps", false, "clear stored runner dependencies before applying --dependency")
 	cmd.Flags().StringArrayVar(&opts.Dependencies, "dependency", nil, "append runner dependency")
+	cmd.Flags().StringArrayVar(&opts.TextHookFilter, "text-hook-filter", nil, "default Textractor hook group filter; repeat for multiple groups")
+	cmd.Flags().BoolVar(&opts.ClearTextHookFilter, "clear-text-hook-filter", false, "clear default Textractor hook group filters")
 
 	cmd.Flags().StringVar(&opts.Resolution, "resolution", "", "gamescope internal resolution WIDTHxHEIGHT")
 	cmd.Flags().StringVar(&opts.OutputResolution, "output-resolution", "", "gamescope output resolution WIDTHxHEIGHT")
@@ -264,6 +269,14 @@ func applyRunnerConfigFlags(cmd *cobra.Command, g *game.Game, opts RunnerConfigO
 	}
 	if len(opts.Dependencies) > 0 {
 		g.RunnerConfig.Dependencies = append(g.RunnerConfig.Dependencies, opts.Dependencies...)
+		changed = true
+	}
+	if opts.ClearTextHookFilter {
+		g.TextHookFilter = nil
+		changed = true
+	}
+	if len(opts.TextHookFilter) > 0 {
+		g.TextHookFilter = normalizeHookFilters(opts.TextHookFilter)
 		changed = true
 	}
 
@@ -449,6 +462,7 @@ func readRunnerProfile(path string, g *game.Game) error {
 		RunnerConfig    gr.Config       `json:"runner_config"`
 		WineConfig      json.RawMessage `json:"wine_config"`
 		GamescopeConfig json.RawMessage `json:"gamescope_config"`
+		TextHookFilter  []string        `json:"text_hook_filter"`
 	}
 	if err := json.Unmarshal(raw, &profile); err != nil {
 		return fmt.Errorf("parse runner profile: %w", err)
@@ -461,6 +475,7 @@ func readRunnerProfile(path string, g *game.Game) error {
 	g.PrefixPath = profile.PrefixPath
 	g.WorkingDir = profile.WorkingDir
 	g.RunnerConfig = profile.RunnerConfig
+	g.TextHookFilter = normalizeHookFilters(profile.TextHookFilter)
 	if len(profile.WineConfig) > 0 && string(profile.WineConfig) != "null" {
 		if err := json.Unmarshal(profile.WineConfig, &g.WineConfig); err != nil {
 			return fmt.Errorf("parse wine_config: %w", err)
@@ -483,5 +498,6 @@ func runnerProfileFromGame(g *game.Game) runnerProfile {
 		RunnerConfig:    g.RunnerConfig,
 		WineConfig:      g.WineConfig,
 		GamescopeConfig: g.GamescopeConfig,
+		TextHookFilter:  g.TextHookFilter,
 	}
 }

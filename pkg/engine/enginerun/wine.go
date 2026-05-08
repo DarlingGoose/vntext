@@ -214,7 +214,9 @@ func WineOptions(g *game.Game, args ...string) ([]gr.Option, error) {
 	background := g.RunnerConfig.Background
 
 	if hasRunnerConfig(g.RunnerConfig) {
-		opts := g.RunnerConfig.Options()
+		cfg := g.RunnerConfig
+		applyGameLocaleConfig(g, &cfg)
+		opts := cfg.Options()
 		if len(args) > 0 {
 			opts = append(opts, gr.WithArgs(args...))
 		}
@@ -253,6 +255,7 @@ func ConfigureRunner(g *game.Game) error {
 		return nil
 	}
 	g.RunnerConfig = gr.NewConfig(defaults.Options...)
+	applyGameLocaleConfig(g, &g.RunnerConfig)
 	return nil
 }
 
@@ -267,7 +270,9 @@ func fallbackConfig(g *game.Game) gr.Config {
 	if env := autorunner.RecommendedWineEnv(WineEnv(g)); len(env) > 0 {
 		opts = append(opts, gr.WithEnv(env...))
 	}
-	return gr.NewConfig(opts...)
+	cfg := gr.NewConfig(opts...)
+	applyGameLocaleConfig(g, &cfg)
+	return cfg
 }
 
 func WineBin(g *game.Game) string {
@@ -295,15 +300,7 @@ func hasRunnerConfig(c gr.Config) bool {
 
 func WineEnv(g *game.Game) autorunner.WineEnvConfig {
 	cfg := autorunner.DefaultWineEnvConfig()
-
-	if locale := strings.TrimSpace(g.Locale); locale != "" {
-		cfg.Lang = locale
-		cfg.Extra = append(cfg.Extra,
-			"LC_ALL="+locale,
-			"LC_CTYPE="+locale,
-			"LC_MESSAGES="+locale,
-		)
-	}
+	cfg.Lang = ""
 
 	for _, kv := range g.EnvVars {
 		key := strings.TrimSpace(kv.Key)
@@ -312,7 +309,62 @@ func WineEnv(g *game.Game) autorunner.WineEnvConfig {
 		}
 	}
 
+	if locale := GameWineLocale(g); locale != "" {
+		cfg.Lang = locale
+		cfg.Extra = append(cfg.Extra,
+			"LANG="+locale,
+			"LC_ALL="+locale,
+			"LC_CTYPE="+locale,
+			"LC_MESSAGES="+locale,
+		)
+	}
+
 	return cfg
+}
+
+func applyGameLocaleConfig(g *game.Game, cfg *gr.Config) {
+	if g == nil || cfg == nil {
+		return
+	}
+	locale := GameWineLocale(g)
+	if locale == "" {
+		return
+	}
+	cfg.Envs = upsertEnvSpec(cfg.Envs, "LANG="+locale)
+	cfg.Envs = upsertEnvSpec(cfg.Envs, "LC_ALL="+locale)
+	cfg.Envs = upsertEnvSpec(cfg.Envs, "LC_CTYPE="+locale)
+	cfg.Envs = upsertEnvSpec(cfg.Envs, "LC_MESSAGES="+locale)
+}
+
+func GameWineLocale(g *game.Game) string {
+	if g == nil {
+		return ""
+	}
+	if locale := strings.TrimSpace(g.Locale); locale != "" {
+		return locale
+	}
+	if exe := strings.TrimSpace(g.Executable); exe != "" {
+		if locale, err := autorunner.DetectWineLang(exe); err == nil && strings.TrimSpace(locale) != "" {
+			return strings.TrimSpace(locale)
+		}
+	}
+	return ""
+}
+
+func upsertEnvSpec(envs []string, spec string) []string {
+	key, _, ok := strings.Cut(spec, "=")
+	if !ok || strings.TrimSpace(key) == "" {
+		return append(envs, spec)
+	}
+
+	prefix := key + "="
+	for i, existing := range envs {
+		if strings.HasPrefix(existing, prefix) {
+			envs[i] = spec
+			return envs
+		}
+	}
+	return append(envs, spec)
 }
 
 func WineTarget(g *game.Game) (string, []string) {

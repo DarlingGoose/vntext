@@ -488,3 +488,12 @@ This keeps the command code small and makes it easier to add new engines later.
 | RPG Maker   | Supported |
 | Textfile    | Encoding preservation       |
 | Log helper  | Working                     |
+
+
+# TODO
+- fix readme
+- can you also help me finish textractor? i want a way to set the default hook to follow filter on in the game     
+- need to fix gamescope game launch ^Cstopping Prison Battleship-2
+  ^CError: game exited with error: signal: killed
+- need to use followtext instead of just following the file
+- need to use selectorv2 client

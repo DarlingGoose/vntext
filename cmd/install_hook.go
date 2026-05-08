@@ -16,9 +16,11 @@ import (
 )
 
 type InstallHookOptions struct {
-	ConfigDir string
-	Engine    string
-	NoSave    bool
+	ConfigDir       string
+	Engine          string
+	NoSave          bool
+	HookFilter      []string
+	ClearHookFilter bool
 }
 
 func NewInstallHookCommand() *cobra.Command {
@@ -69,6 +71,12 @@ func NewInstallHookCommand() *cobra.Command {
 			if strings.TrimSpace(selected.EngineName) == "" {
 				selected.EngineName = eng.Name()
 			}
+			if opts.ClearHookFilter {
+				selected.TextHookFilter = nil
+			}
+			if len(opts.HookFilter) > 0 {
+				selected.TextHookFilter = normalizeHookFilters(opts.HookFilter)
+			}
 
 			if !opts.NoSave {
 				if err := gameConfig.WriteGameConfig(installedHookConfigPath(opts.ConfigDir, selected), selected); err != nil {
@@ -81,6 +89,9 @@ func NewInstallHookCommand() *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "  game:   %s\n", selected.Name)
 			if strings.TrimSpace(selected.TextHookLogFile) != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "  log:    %s\n", selected.TextHookLogFile)
+			}
+			if len(selected.TextHookFilter) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "  filter: %s\n", strings.Join(selected.TextHookFilter, ", "))
 			}
 
 			return nil
@@ -105,6 +116,18 @@ func NewInstallHookCommand() *cobra.Command {
 		false,
 		"do not write updated hook metadata back to the game config",
 	)
+	cmd.Flags().StringArrayVar(
+		&opts.HookFilter,
+		"hook-filter",
+		nil,
+		"default Textractor hook group filter; repeat for multiple groups",
+	)
+	cmd.Flags().BoolVar(
+		&opts.ClearHookFilter,
+		"clear-hook-filter",
+		false,
+		"clear default Textractor hook group filters",
+	)
 
 	return cmd
 }
@@ -118,11 +141,13 @@ func selectHookEngine(g *game.Game, override string) (engine.EngineV2, error) {
 		return nil, errors.New("game is nil")
 	}
 
-	if eng := hookEngineByName(override); eng != nil {
+	selector := auto.DefaultEngineSelectorV2()
+
+	if eng := hookEngineByName(selector, override); eng != nil {
 		return eng, nil
 	}
 
-	if eng := hookEngineByName(g.EngineName); eng != nil {
+	if eng := hookEngineByName(selector, g.EngineName); eng != nil {
 		return eng, nil
 	}
 
@@ -131,7 +156,7 @@ func selectHookEngine(g *game.Game, override string) (engine.EngineV2, error) {
 		if candidate == "" {
 			continue
 		}
-		eng, err := auto.SelectEngineV2(candidate)
+		eng, err := selector.Select(candidate)
 		if err == nil {
 			return eng, nil
 		}
@@ -140,8 +165,11 @@ func selectHookEngine(g *game.Game, override string) (engine.EngineV2, error) {
 	return nil, fmt.Errorf("could not determine engine for %q; pass --engine", g.Name)
 }
 
-func hookEngineByName(name string) engine.EngineV2 {
-	return auto.SelectEngineV2ByName(name)
+func hookEngineByName(selector *auto.EngineSelectorV2, name string) engine.EngineV2 {
+	if selector == nil {
+		selector = auto.DefaultEngineSelectorV2()
+	}
+	return selector.ByName(name)
 }
 
 func installedHookConfigPath(configDir string, g *game.Game) string {
@@ -156,4 +184,23 @@ func installedHookConfigPath(configDir string, g *game.Game) string {
 	}
 
 	return filepath.Join(configDir, name+".json")
+}
+
+func normalizeHookFilters(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		for _, part := range strings.Split(value, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if _, ok := seen[part]; ok {
+				continue
+			}
+			out = append(out, part)
+			seen[part] = struct{}{}
+		}
+	}
+	return out
 }

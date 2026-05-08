@@ -27,9 +27,13 @@ type Client struct {
 
 	textractorMu    sync.RWMutex
 	textractorGames map[string]*textractor.Client
+	managedGames    map[string]*game.Game
 }
 
 func (c *Client) GetTextractor(game *game.Game) *textractor.Client {
+	if game == nil {
+		return nil
+	}
 	c.textractorMu.RLock()
 	defer c.textractorMu.RUnlock()
 	if g, ok := c.textractorGames[game.Name]; ok {
@@ -39,15 +43,30 @@ func (c *Client) GetTextractor(game *game.Game) *textractor.Client {
 }
 
 func (c *Client) ManagedGames() []*game.Game {
-	return nil
+	c.textractorMu.RLock()
+	defer c.textractorMu.RUnlock()
+
+	games := make([]*game.Game, 0, len(c.managedGames))
+	for _, g := range c.managedGames {
+		if g == nil {
+			continue
+		}
+		copy := *g
+		games = append(games, &copy)
+	}
+	return games
 }
 
 func (c *Client) Shutdown() error {
+	c.textractorMu.Lock()
+	defer c.textractorMu.Unlock()
+
 	for gameName, tr := range c.textractorGames {
 		slog.Info("shutting down game", "game", gameName)
 		_ = tr.Close()
 	}
 	c.textractorGames = map[string]*textractor.Client{}
+	c.managedGames = map[string]*game.Game{}
 	return nil
 }
 
@@ -122,16 +141,17 @@ func (c *Client) AddGame(ctx context.Context, fp string) (*game.Game, error) {
 	i := textractor.Installer{}
 	if _, err := i.Install(ctx, textractor.InstallOptions{
 		WinePrefix: g.PrefixPath,
-		Force:      false,
+		Force:      true,
 	}); err != nil {
 		return nil, err
 	}
-
+	slog.Info("installed textreactor installer")
 	return g, nil
 }
 
-func (c *Client) RunGame(ctx context.Context, game *game.Game) (*gr.Process, error) {
-	return enginerun.RunGame(ctx, game)
+func (c *Client) RunGame(ctx context.Context, g *game.Game) (*gr.Process, error) {
+
+	return enginerun.RunGame(ctx, g)
 }
 
 func (c *Client) StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
@@ -142,21 +162,56 @@ func (c *Client) GetFile(g *game.Game, file string) (*engine.EngineFileInfo, err
 	return enginerun.UnsupportedFile(g, file)
 }
 
-func (c *Client) FollowGameText(ctx context.Context, game *game.Game, opts ...engine.FollowGameOptions) (chan engine.Line, error) {
-	lister := textractor.ProcessLister{
-		WinePrefix: game.PrefixPath,
+func (c *Client) FollowGameText(ctx context.Context, g *game.Game, opts ...engine.FollowGameOptions) (chan engine.Line, error) {
+	if g == nil {
+		return nil, fmt.Errorf("game is nil")
+	}
+	client := c.GetTextractor(g)
+	if client == nil {
+		var err error
+		client, err = c.attachTextractor(ctx, g)
+		if err != nil {
+			return nil, err
+		}
+		slog.Info("attached a new text reactor client")
 	}
 
-	procs, err := lister.FindByName(ctx, filepath.Base(game.Executable))
-	if err != nil {
-		return nil, err
+	cfg := mergeFollowOptions(opts)
+	lines := c.textractorLines(ctx, client, g.TextHookFilter, cfg.History)
+	return emitTextractorLines(ctx, lines, cfg.Filters), nil
+}
+
+func (c *Client) attachTextractor(ctx context.Context, g *game.Game) (*textractor.Client, error) {
+	lister := textractor.ProcessLister{
+		WinePrefix: g.PrefixPath,
 	}
-	arch, err := textractor.DetectArchFromFileCommand(ctx, game.Executable)
+
+	var procs []textractor.WineProcess
+	var err error
+	maxTries := 10
+	for {
+		slog.Info("attempting to find process")
+		procs, err = lister.FindByName(ctx, filepath.Base(g.Executable))
+		if err == nil {
+			break
+		}
+		if maxTries <= 0 {
+			return nil, err
+		}
+		maxTries--
+		time.Sleep(5 * time.Second)
+
+	}
+
+	if len(procs) == 0 {
+		return nil, fmt.Errorf("game process not found for %s", filepath.Base(g.Executable))
+	}
+	arch, err := textractor.DetectArchFromFileCommand(ctx, g.Executable)
 	if err != nil {
 		arch = textractor.ArchX86
 	}
 	client, err := textractor.NewClient(textractor.ClientOptions{
-		WinePrefix: game.PrefixPath,
+		WinePrefix: g.PrefixPath,
 		Arch:       arch,
 	})
 	if err != nil {
@@ -166,38 +221,134 @@ func (c *Client) FollowGameText(ctx context.Context, game *game.Game, opts ...en
 	if err := client.Attach(ctx, pid); err != nil {
 		return nil, err
 	}
-	//todo need a way to laod history
-	//todo need a way to save history to file
-	//todo need a way to filter by hook id
+
 	c.textractorMu.Lock()
 	defer c.textractorMu.Unlock()
 	if c.textractorGames == nil {
 		c.textractorGames = map[string]*textractor.Client{}
-
 	}
-	output := make(chan engine.Line, 100)
-	c.textractorGames[game.Name] = client
-	//if game.HookGroup != nil{ // exists in textractor
-	// 	client.HookHistory()
-	//	return client.LinesFiltered(textractor.NewHookFilter(HookGroup),nil
-	//
+	if c.managedGames == nil {
+		c.managedGames = map[string]*game.Game{}
+	}
+	gameCopy := *g
+	c.textractorGames[g.Name] = client
+	c.managedGames[g.Name] = &gameCopy
+	return client, nil
+}
 
-	//}
+func (c *Client) textractorLines(ctx context.Context, client *textractor.Client, filters []string, history bool) <-chan *textractor.Line {
+	filters = normalizeHookGroups(filters)
+	if len(filters) == 1 {
+		return client.HookFeed(ctx, filters[0], history)
+	}
+	if len(filters) > 1 {
+		return textractor.FilterLines(client.Lines(), textractor.NewHookFilter(filters...))
+	}
+	if history {
+		return client.HookFeed(ctx, "", true)
+	}
+	return client.Lines()
+}
+
+func emitTextractorLines(ctx context.Context, lines <-chan *textractor.Line, filters []func(*engine.Line) *engine.Line) chan engine.Line {
+	output := make(chan engine.Line, 100)
 	go func() {
-		close(output)
-		for l := range client.Lines() {
-			output <- engine.Line{
+		defer close(output)
+		for l := range lines {
+			if l == nil {
+				continue
+			}
+			line := &engine.Line{
 				Raw:     l.Raw,
 				Hook:    l.Hook,
 				Text:    l.Text,
 				Speaker: l.Speaker,
 			}
+			for _, filter := range filters {
+				if filter != nil {
+					line = filter(line)
+				}
+				if line == nil {
+					break
+				}
+			}
+			if line == nil {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case output <- *line:
+			}
 		}
 	}()
+	return output
+}
 
-	return output, nil
+func mergeFollowOptions(opts []engine.FollowGameOptions) engine.FollowGameOptions {
+	var cfg engine.FollowGameOptions
+	for _, opt := range opts {
+		if opt.MaxLines > 0 {
+			cfg.MaxLines = opt.MaxLines
+		}
+		if opt.History {
+			cfg.History = true
+		}
+		cfg.Filters = append(cfg.Filters, opt.Filters...)
+	}
+	return cfg
+}
+
+func normalizeHookGroups(groups []string) []string {
+	out := make([]string, 0, len(groups))
+	seen := map[string]struct{}{}
+	for _, group := range groups {
+		for _, part := range strings.Split(group, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			part = textractor.HookGroup(part)
+			if _, ok := seen[part]; ok {
+				continue
+			}
+			out = append(out, part)
+			seen[part] = struct{}{}
+		}
+	}
+	return out
 }
 
 func (c *Client) Name() string {
 	return "textreactor"
+}
+
+func textReactorRunGame(g *game.Game) *game.Game {
+	if g == nil {
+		return nil
+	}
+
+	copy := *g
+	if copy.Runner == "" || textReactorShouldDefaultToWine(&copy) {
+		copy.Runner = game.RunnerWine
+		copy.RunnerPath = textReactorWineBin(&copy)
+	}
+	return &copy
+}
+
+func textReactorShouldDefaultToWine(g *game.Game) bool {
+	if g == nil || g.Runner != game.RunnerGamescope {
+		return false
+	}
+	if strings.TrimSpace(g.RunnerPath) != "" {
+		return false
+	}
+	return g.GamescopeConfig == nil
+}
+
+func textReactorWineBin(g *game.Game) string {
+	if g == nil || g.WineConfig == nil {
+		return ""
+	}
+	return strings.TrimSpace(g.WineConfig.WineBin)
 }

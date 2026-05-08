@@ -1,19 +1,22 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/DarlingGoose/gr"
+	grwine "github.com/DarlingGoose/gr/wine"
 	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/game"
@@ -189,12 +192,10 @@ func RunSelectedGame(ctx context.Context, g *game.Game, opts RunGameOptions) (*G
 
 	copy := *g
 	copy.RunnerConfig.Background = opts.Background || opts.Sync
-	slog.Info("running game")
 	proc, err := eng.RunGame(ctx, &copy)
 	if err != nil {
 		return nil, err
 	}
-	slog.Info("proc", "pid", proc.PID, "wine", proc.WinePID)
 	status := processStatusFromGR(proc)
 	if status == nil {
 		status = &GameProcessStatus{Status: processStatusExited}
@@ -248,6 +249,9 @@ type GameProcessStatus struct {
 }
 
 func (p *GameProcessStatus) Wait() error {
+	if p != nil && p.proc != nil && p.proc.WinePID > 0 {
+		return waitWinePID(context.Background(), p.proc)
+	}
 	if p != nil && p.proc != nil && p.proc.Cmd != nil {
 		return p.proc.Cmd.Wait()
 	}
@@ -275,6 +279,78 @@ func (p *GameProcessStatus) Kill() error {
 	}
 
 	return nil
+}
+
+func waitWinePID(ctx context.Context, proc *gr.Process) error {
+	if proc == nil || proc.WinePID <= 0 {
+		return nil
+	}
+	if strings.TrimSpace(processEnv(proc, "WINEPREFIX")) == "" {
+		return errors.New("cannot wait for wine PID without WINEPREFIX")
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		running, err := winePIDRunning(ctx, proc)
+		if err != nil {
+			return err
+		}
+		if !running {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func winePIDRunning(ctx context.Context, proc *gr.Process) (bool, error) {
+	cmd := exec.CommandContext(ctx, wineBinFromProcess(proc), "tasklist")
+	cmd.Env = append([]string(nil), proc.Environ...)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return false, fmt.Errorf("wine tasklist failed while waiting for pid=%d: %w: %s", proc.WinePID, err, strings.TrimSpace(stderr.String()))
+	}
+
+	for _, p := range grwine.ParseTasklist(stdout.String()) {
+		if p != nil && p.PID == proc.WinePID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func processEnv(proc *gr.Process, key string) string {
+	if proc == nil {
+		return ""
+	}
+	prefix := key + "="
+	for _, env := range proc.Environ {
+		if strings.HasPrefix(env, prefix) {
+			return env[len(prefix):]
+		}
+	}
+	return ""
+}
+
+func wineBinFromProcess(proc *gr.Process) string {
+	if proc != nil && len(proc.Cmdline) > 0 {
+		cmd := strings.TrimSpace(proc.Cmdline[0])
+		if cmd != "" && strings.Contains(strings.ToLower(filepath.Base(cmd)), "wine") {
+			return cmd
+		}
+	}
+	return "wine"
 }
 
 func DefaultGameConfigDir() string {

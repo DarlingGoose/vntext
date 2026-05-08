@@ -52,6 +52,14 @@ func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
 		return nil, errors.New("process is nil")
 	}
 
+	if proc.WinePID > 0 {
+		if err := stopWineProcess(ctx, proc); err != nil {
+			return proc, err
+		}
+		proc.Status = gr.StatusStopped
+		return proc, nil
+	}
+
 	if proc.Cmd != nil {
 		if proc.Cmd.Cancel != nil {
 			if err := proc.Cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
@@ -83,10 +91,15 @@ func stopWineProcess(ctx context.Context, proc *gr.Process) error {
 		return errors.New("cannot stop process without host command or wine prefix")
 	}
 
-	cmd := exec.CommandContext(ctx, wineBinFromProcess(proc), "taskkill", "/PID", strconv.Itoa(proc.PID), "/F")
+	pid := proc.WinePID
+	if pid <= 0 {
+		pid = proc.PID
+	}
+
+	cmd := exec.CommandContext(ctx, wineBinFromProcess(proc), "taskkill", "/PID", strconv.Itoa(pid), "/F")
 	cmd.Env = append([]string(nil), proc.Environ...)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("wine taskkill pid=%d: %w", proc.PID, err)
+		return fmt.Errorf("wine taskkill pid=%d: %w", pid, err)
 	}
 	return nil
 }

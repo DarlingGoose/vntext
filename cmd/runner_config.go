@@ -11,6 +11,7 @@ import (
 	"github.com/DarlingGoose/gr"
 	"github.com/DarlingGoose/gr/gamescope"
 	"github.com/DarlingGoose/gr/wine"
+	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/gameConfig"
 	"github.com/spf13/cobra"
@@ -120,7 +121,7 @@ func NewRunnerConfigCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.ConfigDir, "config-dir", "", "installed game config directory; defaults to ~/.config/vntext/games")
+	cmd.Flags().StringVar(&opts.ConfigDir, "config-dir", "", fmt.Sprintf("installed game config directory; defaults to ~/.config/%s/games", app.Name()))
 	cmd.Flags().StringVar(&opts.Import, "import", "", "load runner profile JSON from this path")
 	cmd.Flags().StringVar(&opts.Export, "export", "", "write runner profile JSON to this path")
 	cmd.Flags().StringVar(&opts.ImportWineConfig, "import-wine-config", "", "load native GR wine options JSON from this path")

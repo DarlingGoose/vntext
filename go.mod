@@ -5,7 +5,7 @@ go 1.26.2
 require (
 	github.com/DarlingGoose/gr v0.0.10
 	github.com/DarlingGoose/krkrxp3 v0.0.0-20260506230704-7038f45dab8d
-	github.com/DarlingGoose/tr v0.0.0-20260507143048-da94cf406112
+	github.com/DarlingGoose/tr v0.0.1
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/text v0.36.0

@@ -158,7 +158,7 @@ func (c *Client) FollowGameText(ctx context.Context, game *game.Game, opts ...en
 	client, err := textractor.NewClient(textractor.ClientOptions{
 		WinePrefix: game.PrefixPath,
 		Arch:       arch,
-	}) //todo need to close client?
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -175,9 +175,27 @@ func (c *Client) FollowGameText(ctx context.Context, game *game.Game, opts ...en
 		c.textractorGames = map[string]*textractor.Client{}
 
 	}
+	output := make(chan engine.Line, 100)
 	c.textractorGames[game.Name] = client
-	client.Lines()
-	return nil, nil
+	//if game.HookGroup != nil{ // exists in textractor
+	// 	client.HookHistory()
+	//	return client.LinesFiltered(textractor.NewHookFilter(HookGroup),nil
+	//
+
+	//}
+	go func() {
+		close(output)
+		for l := range client.Lines() {
+			output <- engine.Line{
+				Raw:     l.Raw,
+				Hook:    l.Hook,
+				Text:    l.Text,
+				Speaker: l.Speaker,
+			}
+		}
+	}()
+
+	return output, nil
 }
 
 func (c *Client) Name() string {

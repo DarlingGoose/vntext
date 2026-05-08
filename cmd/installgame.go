@@ -3,13 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/gameConfig"
-	"github.com/DarlingGoose/vntext/pkg/util"
 	"github.com/spf13/cobra"
 )
 
@@ -93,29 +90,11 @@ func NewInstallCommand() *cobra.Command {
 }
 
 func DefaultGameConfigPath(g *game.Game) string {
-	name := strings.TrimSpace(g.Name)
-	if name == "" {
-		name = "game"
-	}
-
-	return filepath.Join(
-		configBaseDir(),
-		"games",
-		util.SanitizeName(name)+".json",
-	)
+	return gameConfig.DefaultGameConfigPath(g)
 }
 
 func configBaseDir() string {
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return filepath.Join(xdg, "vntext")
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".", ".vntext")
-	}
-
-	return filepath.Join(home, ".config", "vntext")
+	return gameConfig.ConfigBaseDir()
 }
 
 func init() {

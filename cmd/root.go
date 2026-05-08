@@ -3,12 +3,13 @@ package cmd
 import (
 	"os"
 
+	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/spf13/cobra"
 )
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "vntext",
+	Use:   app.Name(),
 	Short: "A brief description of your application",
 	Long: `A longer description that spans multiple lines and likely contains
 examples and usage of using your application. For example:
@@ -19,6 +20,7 @@ to quickly create a Cobra application.`,
 }
 
 func Execute() {
+	rootCmd.Use = app.Name()
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)

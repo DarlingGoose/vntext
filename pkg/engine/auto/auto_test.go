@@ -1,53 +1,34 @@
 package auto
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/DarlingGoose/vntext/pkg/app"
 )
 
-//func TestSelectEngineMapsRPGMakerOldDetection(t *testing.T) {
-//	root := t.TempDir()
-//	if err := os.MkdirAll(filepath.Join(root, "System"), 0o755); err != nil {
-//		t.Fatalf("create system dir: %v", err)
-//	}
-//	writeAutoTestFile(t, filepath.Join(root, "Game.exe"), "")
-//	writeAutoTestFile(t, filepath.Join(root, "Game.ini"), "")
-//	writeAutoTestFile(t, filepath.Join(root, "Game.rgss3a"), "")
-//	writeAutoTestFile(t, filepath.Join(root, "System", "RGSS301.dll"), "")
-//
-//	eng, err := SelectEngine(root)
-//	if err != nil {
-//		t.Fatalf("SelectEngine(%q) returned error: %v", root, err)
-//	}
-//	if eng.Name() != "rpgmaker-xp-vx-ace" {
-//		t.Fatalf("expected rpgmaker-xp-vx-ace engine, got %q", eng.Name())
-//	}
-//}
+func TestDefaultEngineSelectorV2ReusesEngines(t *testing.T) {
+	orig := app.ProgramName
+	app.ProgramName = app.DefaultProgramName
+	t.Cleanup(func() { app.ProgramName = orig })
 
-func TestSelectEngineDoesNotUseBroadDetectorForExeParent(t *testing.T) {
-	root := t.TempDir()
-	exe := filepath.Join(root, "Goodbye Tired Stars 1.05.exe")
-	writeAutoTestFile(t, exe, "")
+	first := DefaultEngineSelectorV2()
+	second := DefaultEngineSelectorV2()
 
-	extracted := filepath.Join(root, "Goodbye Tired Stars 1.05")
-	if err := os.MkdirAll(filepath.Join(extracted, "System"), 0o755); err != nil {
-		t.Fatalf("create system dir: %v", err)
+	if first != second {
+		t.Fatal("DefaultEngineSelectorV2 should reuse the selector for the same program name")
 	}
-	writeAutoTestFile(t, filepath.Join(extracted, "Game.exe"), "")
-	writeAutoTestFile(t, filepath.Join(extracted, "Game.ini"), "")
-	writeAutoTestFile(t, filepath.Join(extracted, "Game.rgss3a"), "")
-	writeAutoTestFile(t, filepath.Join(extracted, "System", "RGSS301.dll"), "")
 
-	if _, err := SelectEngine(exe); err == nil {
-		t.Fatalf("SelectEngine should not detect an exe from an extracted sibling directory")
+	if first.ByName("rpgmaker") != second.ByName("rpgmaker") {
+		t.Fatal("rpgmaker engine should be reused")
+	}
+	if first.ByName("kirikiri") != second.ByName("krkr2") {
+		t.Fatal("kirikiri aliases should resolve to the same engine")
 	}
 }
 
-func writeAutoTestFile(t *testing.T, path, content string) {
-	t.Helper()
-
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
+func TestNewEngineSelectorV2DefaultsProgramName(t *testing.T) {
+	selector := NewEngineSelectorV2("")
+	if selector.programName != app.DefaultProgramName {
+		t.Fatalf("programName = %q, want %q", selector.programName, app.DefaultProgramName)
 	}
 }

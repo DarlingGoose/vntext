@@ -52,7 +52,10 @@ type FollowGameOptions struct {
 }
 
 type Line struct {
-	Raw string
+	Raw     string
+	Hook    string
+	Text    string
+	Speaker string
 }
 
 //todo add an option to get/find media files

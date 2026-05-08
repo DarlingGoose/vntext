@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/util"
@@ -65,16 +66,18 @@ func (e *Engine) prefixPathFor(name string) string {
 }
 
 func defaultPrefixRoot() string {
+	programName := app.Name()
+
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "vntext", "prefixes")
+		return filepath.Join(xdg, programName, "prefixes")
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".", ".vntext", "prefixes")
+		return filepath.Join(".", "."+programName, "prefixes")
 	}
 
-	return filepath.Join(home, ".config", "vntext", "prefixes")
+	return filepath.Join(home, ".config", programName, "prefixes")
 }
 
 func (e *Engine) Name() string {
@@ -187,7 +190,7 @@ func cachedKiriKiriArchiveDataDir(ctx context.Context, archive string) (string, 
 		return "", err
 	}
 
-	marker := filepath.Join(cacheDir, ".vntext-complete")
+	marker := filepath.Join(cacheDir, "."+app.Name()+"-complete")
 	plan := xp3PatchPlan{
 		SourceArchive: archive,
 		OutputArchive: filepath.Join(filepath.Dir(archive), wglPatchXP3Name),
@@ -243,5 +246,5 @@ func kirikiriArchiveCacheDir(archive string) (string, error) {
 	)))
 	key := hex.EncodeToString(sum[:16])
 
-	return filepath.Join(os.TempDir(), "vntext", "kirikiri2", "xp3-cache", key), nil
+	return filepath.Join(os.TempDir(), app.Name(), "kirikiri2", "xp3-cache", key), nil
 }

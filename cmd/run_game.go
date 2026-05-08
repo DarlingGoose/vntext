@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/DarlingGoose/gr"
+	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/gameConfig"
 
@@ -133,7 +134,7 @@ func NewRunGameCommand() *cobra.Command {
 		&opts.ConfigDir,
 		"config-dir",
 		"",
-		"installed game config directory; defaults to ~/.config/vntext/games",
+		fmt.Sprintf("installed game config directory; defaults to ~/.config/%s/games", app.Name()),
 	)
 
 	cmd.Flags().StringVar(
@@ -147,7 +148,7 @@ func NewRunGameCommand() *cobra.Command {
 		&opts.Sync,
 		"sync",
 		false,
-		"keep vntext alive while the game is running and stop the game when vntext exits",
+		fmt.Sprintf("keep %s alive while the game is running and stop the game when %s exits", app.Name(), app.Name()),
 	)
 
 	cmd.Flags().BoolVar(

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/DarlingGoose/vntext/pkg/app"
 )
 
 func TestInstallGameAcceptsExeInputAndWritesDefaultConfig(t *testing.T) {
@@ -33,7 +35,7 @@ func TestInstallGameAcceptsExeInputAndWritesDefaultConfig(t *testing.T) {
 		t.Fatalf("expected direct exe %q, got %q", exe, g.Executable)
 	}
 
-	configPath := filepath.Join(configHome, "vntext", "games", "direct-game.json")
+	configPath := filepath.Join(configHome, app.Name(), "games", "direct-game.json")
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("expected default config at %s: %v", configPath, err)
 	}

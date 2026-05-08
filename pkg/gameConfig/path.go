@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/util"
 )
@@ -23,14 +24,16 @@ func DefaultGameConfigPath(g *game.Game) string {
 }
 
 func ConfigBaseDir() string {
+	programName := app.Name()
+
 	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return filepath.Join(xdg, "vntext")
+		return filepath.Join(xdg, programName)
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".", ".vntext")
+		return filepath.Join(".", "."+programName)
 	}
 
-	return filepath.Join(home, ".config", "vntext")
+	return filepath.Join(home, ".config", programName)
 }

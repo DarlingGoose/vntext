@@ -6,10 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/engine/auto"
-	"github.com/DarlingGoose/vntext/pkg/engine/kirikiri2"
-	"github.com/DarlingGoose/vntext/pkg/engine/rpgmaker"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/gameConfig"
 	"github.com/DarlingGoose/vntext/pkg/util"
@@ -92,7 +91,7 @@ func NewInstallHookCommand() *cobra.Command {
 		&opts.ConfigDir,
 		"config-dir",
 		"",
-		"installed game config directory; defaults to ~/.config/vntext/games",
+		fmt.Sprintf("installed game config directory; defaults to ~/.config/%s/games", app.Name()),
 	)
 	cmd.Flags().StringVar(
 		&opts.Engine,
@@ -142,18 +141,7 @@ func selectHookEngine(g *game.Game, override string) (engine.EngineV2, error) {
 }
 
 func hookEngineByName(name string) engine.EngineV2 {
-	name = strings.ToLower(strings.TrimSpace(name))
-	name = strings.ReplaceAll(name, "_", "-")
-	name = strings.ReplaceAll(name, " ", "-")
-
-	switch {
-	case name == "kirikiri2", name == "kirikiri", name == "krkr", name == "krkr2":
-		return kirikiri2.New()
-	case name == "rpgmaker", strings.HasPrefix(name, "rpgmaker-"), strings.HasPrefix(name, "rpg-maker"):
-		return rpgmaker.New()
-	default:
-		return nil
-	}
+	return auto.SelectEngineV2ByName(name)
 }
 
 func installedHookConfigPath(configDir string, g *game.Game) string {

@@ -14,6 +14,7 @@ import (
 	"github.com/DarlingGoose/gr/autorunner"
 	"github.com/DarlingGoose/gr/gamescope"
 	"github.com/DarlingGoose/gr/wine"
+	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/util"
 )
@@ -316,7 +317,7 @@ func WineEnv(g *game.Game) autorunner.WineEnvConfig {
 
 func WineTarget(g *game.Game) (string, []string) {
 	if desktop := WineVirtualDesktop(g); desktop != "" {
-		return "explorer", []string{"/desktop=vntext," + desktop, WindowsPathForWine(g)}
+		return "explorer", []string{"/desktop=" + app.Name() + "," + desktop, WindowsPathForWine(g)}
 	}
 	return g.Executable, nil
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/DarlingGoose/krkrxp3/pkg/xp3"
+	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/game"
 )
 
@@ -186,7 +187,7 @@ func TestCachedKiriKiriArchiveDataDirReusesCompletedExtraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(cacheDir, ".vntext-complete")); err != nil {
+	if _, err := os.Stat(filepath.Join(cacheDir, "."+app.Name()+"-complete")); err != nil {
 		t.Fatalf("cache marker missing: %v", err)
 	}
 }

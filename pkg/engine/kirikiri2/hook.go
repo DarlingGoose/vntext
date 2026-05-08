@@ -63,7 +63,7 @@ func (e *Engine) installXP3TextHook(ctx context.Context, g *game.Game, root stri
 		plugin = e.CurrentPlugin
 	}
 
-	if err := writeTextLogger(plugin, plan.LoggerPath, plan.StartupPath); err != nil {
+	if err := writeTextLogger(plugin, plan.LoggerPath, plan.StartupPath, root); err != nil {
 		return err
 	}
 
@@ -210,7 +210,7 @@ func detectExtractedLayout(plan *xp3PatchPlan) error {
 	return nil
 }
 
-func writeTextLogger(pluginData, loggerPath string, startupPath string) error {
+func writeTextLogger(pluginData, loggerPath string, startupPath string, gameRoot string) error {
 	startup, err := textfile.Read(startupPath)
 	if err != nil {
 		return err
@@ -222,8 +222,39 @@ func writeTextLogger(pluginData, loggerPath string, startupPath string) error {
 	}
 
 	source := normalizeHookNewlines(pluginData, startup.Text)
+	source = setTextLoggerExePath(source, filepath.Join(gameRoot, "log.exe"))
 
 	return textfile.Write(loggerPath, source, startup.Style, info.Mode().Perm())
+}
+
+func setTextLoggerExePath(source string, exePath string) string {
+	const setting = `var __TEXT_LOGGER_EXE_PATH = "log.exe";`
+
+	if !strings.Contains(source, setting) {
+		return source
+	}
+
+	return strings.Replace(source, setting, `var __TEXT_LOGGER_EXE_PATH = "`+escapeTJSString(winePathForHostPath(exePath))+`";`, 1)
+}
+
+func winePathForHostPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "log.exe"
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+
+	return `Z:` + strings.ReplaceAll(filepath.ToSlash(abs), "/", `\`)
+}
+
+func escapeTJSString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }
 
 func patchStartupTJS(startupPath string) error {

@@ -1,7 +1,9 @@
 package util
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +40,42 @@ func IsFile(path string) bool {
 func IsDir(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func FindExe(path string) (string, error) {
+	if IsExeFile(path) {
+		if IsFile(path) {
+			return path, nil
+		}
+		return "", os.ErrNotExist
+	}
+	if !IsDir(path) {
+		return "", os.ErrNotExist
+	}
+	var exeFiles []string
+	root := filepath.Clean(path)
+	err := filepath.Walk(path, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if IsExeFile(info.Name()) {
+			exeFiles = append(exeFiles, path)
+		}
+		if info.IsDir() && filepath.Clean(path) != root {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(exeFiles) == 1 {
+		return exeFiles[0], nil
+	}
+	if len(exeFiles) == 0 {
+		return "", os.ErrNotExist
+	}
+	return "", errors.New("found multiple exe files in dir")
 }
 
 func ScoreIconCandidate(searchRoot, path string) int {

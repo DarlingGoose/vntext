@@ -30,7 +30,7 @@ func NewInstallCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Output = strings.TrimSpace(opts.Output)
 
-			g, eng, err := gameConfig.InstallGame(args[0], opts.TextHook, opts.Output)
+			g, eng, err := gameConfig.InstallGame(cmd.Context(), args[0], opts.TextHook, opts.Output)
 			if err != nil {
 				return err
 			}

@@ -2,17 +2,21 @@ package game
 
 import (
 	"os"
+	"strings"
 	"time"
 
+	"github.com/DarlingGoose/gr"
+	"github.com/DarlingGoose/gr/autorunner"
 	"github.com/DarlingGoose/vntext/pkg/util"
 )
 
 type RunnerType string
 
 const (
-	RunnerWine   RunnerType = "wine"
-	RunnerProton RunnerType = "proton"
-	RunnerSteam  RunnerType = "steam"
+	RunnerWine      RunnerType = "wine"
+	RunnerGamescope RunnerType = "gamescope"
+	RunnerProton    RunnerType = "proton"
+	RunnerSteam     RunnerType = "steam"
 )
 
 type Architecture string
@@ -22,6 +26,17 @@ const (
 	ArchitectureX64   Architecture = "x64"
 	ArchitectureARM64 Architecture = "arm64"
 )
+
+func WineArchToArchitecture(arch autorunner.FileArch) Architecture {
+	switch arch {
+	case autorunner.ArchWin64:
+		return ArchitectureX64
+	case autorunner.ArchWin32:
+		return ArchitectureX86
+	default:
+		return ArchitectureX86
+	}
+}
 
 type Game struct {
 	Name           string        `json:"name"`
@@ -33,6 +48,7 @@ type Game struct {
 	ImagePath      string        `json:"image_path,omitempty"`
 	Runner         RunnerType    `json:"runner"`
 	RunnerPath     string        `json:"runner_path"`
+	RunnerConfig   gr.Config     `json:"runner_config,omitempty"`
 	PrefixPath     string        `json:"prefix_path,omitempty"`
 	VirtualDesktop string        `json:"virtual_desktop,omitempty"`
 	RequiresSteam  bool          `json:"requires_steam"`
@@ -70,4 +86,16 @@ func (g *Game) LogSize() (int64, error) {
 type EnvVar struct {
 	Key   string
 	Value string
+}
+
+func EnvStringToEnv(env []string) []EnvVar {
+	var v []EnvVar
+	for _, e := range env {
+		key, value, ok := strings.Cut(e, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			continue
+		}
+		v = append(v, EnvVar{Key: key, Value: value})
+	}
+	return v
 }

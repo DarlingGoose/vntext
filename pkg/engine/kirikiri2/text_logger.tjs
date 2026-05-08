@@ -7,8 +7,9 @@
 // Load from startup.tjs:
 //   Scripts.execStorage("text_logger.tjs");
 
-var __TEXT_LOGGER_SHOW_POPUP = true;
+var __TEXT_LOGGER_SHOW_POPUP = false;
 var __TEXT_LOGGER_INSTALLED = false;
+var __TEXT_LOGGER_EXE_PATH = "log.exe";
 
 // ------------------------------------------------------------
 // Basic helpers
@@ -266,7 +267,9 @@ function appendTextLog(text)
     //   log.exe "dialog text"
 
     var args = __tl_get_character_arg() + __tl_get_voice_arg() + __tl_shell_quote(text);
-    var ok = System.shellExecute("log.exe", args);
+    var ok = System.shellExecute(__TEXT_LOGGER_EXE_PATH, args);
+    if (!ok && __TEXT_LOGGER_EXE_PATH != "log.exe")
+        ok = System.shellExecute("log.exe", args);
 
     return ok;
 }
@@ -471,9 +474,13 @@ function __tl_clean(s)
 }
 
 var __TEXT_LOGGER_COUNT = 0;
+var __TEXT_LOGGER_LOG_CONTROL_TAGS = false;
 
 function __tl_log(kind, text)
 {
+    if (!__TEXT_LOGGER_LOG_CONTROL_TAGS)
+        return;
+
     text = __tl_clean(text);
 
     if (__tl_trim(text) == "")
@@ -832,19 +839,20 @@ function __tl_try_hook_taghandlers()
     __tl_install_tag("speaker", __tl_wrap_speaker);
     __tl_install_tag("talk", __tl_wrap_talk);
 
-    // Choice/menu tags. Many KAG games render Japanese route choices and
-    // command menus through these instead of plain ch/l/p dialogue tags.
+    // Choice/menu/control tags are deliberately not hooked by default. Save,
+    // load, backlog, config, and route-choice screens commonly use these tags;
+    // spawning log.exe while those UIs are being built can freeze old KAG games.
     //__tl_install_tag("button", __tl_wrap_button);
     //__tl_install_tag("link", __tl_wrap_link);
     //__tl_install_tag("glink", __tl_wrap_glink);
-    __tl_install_tag("select", __tl_wrap_select);
-    __tl_install_tag("seladd", __tl_wrap_seladd);
-    __tl_install_tag("selopt", __tl_wrap_selopt);
-    __tl_install_tag("mselect", __tl_wrap_mselect);
-    __tl_install_tag("mseladd", __tl_wrap_mseladd);
-    __tl_install_tag("mselopt", __tl_wrap_mselopt);
-    __tl_install_tag("checkbox", __tl_wrap_checkbox);
-    __tl_install_tag("edit", __tl_wrap_edit);
+    //__tl_install_tag("select", __tl_wrap_select);
+    //__tl_install_tag("seladd", __tl_wrap_seladd);
+    //__tl_install_tag("selopt", __tl_wrap_selopt);
+    //__tl_install_tag("mselect", __tl_wrap_mselect);
+    //__tl_install_tag("mseladd", __tl_wrap_mseladd);
+    //__tl_install_tag("mselopt", __tl_wrap_mselopt);
+    //__tl_install_tag("checkbox", __tl_wrap_checkbox);
+    //__tl_install_tag("edit", __tl_wrap_edit);
 
     // Voice/audio tags. Captured storage is attached to the next flushed
     // dialogue line with log.exe -v and then cleared.
@@ -866,7 +874,8 @@ function __tl_install()
     __TEXT_LOGGER_INSTALLED = true;
 
     Debug.message("[text_logger] installed");
-    //__tl_log("system", "text_logger installed");
+    try { appendTextLog("[text_logger][system] text_logger installed"); }
+    catch (e) { Debug.message("[text_logger] install marker failed"); }
 
     return true;
 }

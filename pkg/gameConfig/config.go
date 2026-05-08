@@ -14,7 +14,7 @@ import (
 	"github.com/DarlingGoose/vntext/pkg/game"
 )
 
-func InstallGame(inputPath string, installHook bool, configDir string) (*game.Game, engine.Engine, error) {
+func InstallGame(ctx context.Context, inputPath string, installHook bool, configDir string) (*game.Game, engine.EngineV2, error) {
 	inputPath = strings.TrimSpace(inputPath)
 	if inputPath == "" {
 		return nil, nil, errors.New("game path is required")
@@ -25,18 +25,18 @@ func InstallGame(inputPath string, installHook bool, configDir string) (*game.Ga
 		return nil, nil, fmt.Errorf("resolve game path: %w", err)
 	}
 
-	eng, err := auto.SelectOrInstallEngine(context.Background(), inputPath)
+	eng, err := auto.SelectEngineV2(inputPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	g, err := eng.InstallGame(resolvedPath)
+	g, err := eng.AddGame(ctx, resolvedPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("install %s game: %w", eng.Name(), err)
+		return nil, nil, fmt.Errorf("add %s game: %w", eng.Name(), err)
 	}
 
 	if installHook {
-		if err := eng.InstallTextHook(g); err != nil {
+		if err := eng.InstallHook(ctx, g); err != nil {
 			return nil, nil, fmt.Errorf("install %s text hook: %w", eng.Name(), err)
 		}
 	}

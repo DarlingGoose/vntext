@@ -1,9 +1,12 @@
 package util
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -17,13 +20,14 @@ var (
 	titleCaser   = cases.Title(language.English)
 )
 
-func FirstNonEmpty(values ...string) string {
+func FirstNonEmpty[T comparable](values ...T) T {
+	var v T
 	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
+		if value != v {
 			return value
 		}
 	}
-	return ""
+	return v
 }
 
 func DeriveGameName(inputPath, executablePath string, inputWasDir bool) string {
@@ -114,4 +118,53 @@ func ByteCountSI(b int64) string {
 	}
 	return fmt.Sprintf("%.1f %cB",
 		float64(b)/float64(div), "kMGTPE"[exp])
+}
+
+func GetWinePrefix(programName, game string) (string, error) {
+	if game == "" {
+		return "", errors.New("missing game name")
+	}
+	game = SanitizeName(game)
+	userDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if programName == "" {
+		return filepath.Join(userDir, ".local", game), nil
+	}
+	return filepath.Join(userDir, ".local", programName, game), nil
+
+}
+
+func StringFromAny(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case []byte:
+		return string(x)
+	case fmt.Stringer:
+		return x.String()
+	case error:
+		return x.Error()
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(x)
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", x)
+	}
+}
+
+func OptionErr(i interface{}, err error) string {
+	if err != nil {
+		return ""
+	}
+	return StringFromAny(i)
+
 }

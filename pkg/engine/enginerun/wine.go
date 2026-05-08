@@ -1,0 +1,284 @@
+package enginerun
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/DarlingGoose/gr"
+	"github.com/DarlingGoose/gr/autorunner"
+	"github.com/DarlingGoose/gr/wine"
+	"github.com/DarlingGoose/vntext/pkg/game"
+	"github.com/DarlingGoose/vntext/pkg/util"
+)
+
+const DefaultVirtualDesktop = "1280x720"
+
+func PrefixPath(programName, prefixRoot, gameName string) (string, error) {
+	if strings.TrimSpace(prefixRoot) != "" {
+		return filepath.Join(prefixRoot, util.SanitizeName(gameName)), nil
+	}
+	return util.GetWinePrefix(programName, gameName)
+}
+
+func RunGame(ctx context.Context, g *game.Game) (*gr.Process, error) {
+	if err := ValidateGame(g); err != nil {
+		return nil, err
+	}
+
+	r, err := RunnerForGame(g)
+	if err != nil {
+		return nil, err
+	}
+
+	target, args := WineTarget(g)
+	opts, err := WineOptions(g, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	return r.Run(ctx, target, opts...)
+}
+
+func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
+	_ = ctx
+	if proc == nil {
+		return nil, errors.New("process is nil")
+	}
+
+	if proc.Cmd != nil && proc.Cmd.Process != nil {
+		if err := proc.Cmd.Process.Kill(); err != nil {
+			return proc, err
+		}
+		proc.Status = gr.StatusStopped
+		return proc, nil
+	}
+
+	if proc.PID <= 0 {
+		return proc, errors.New("process PID is empty")
+	}
+
+	if err := stopWineProcess(ctx, proc); err != nil {
+		return proc, err
+	}
+	proc.Status = gr.StatusStopped
+	return proc, nil
+}
+
+func stopWineProcess(ctx context.Context, proc *gr.Process) error {
+	prefix := processEnv(proc, "WINEPREFIX")
+	if strings.TrimSpace(prefix) == "" {
+		return errors.New("cannot stop process without host command or wine prefix")
+	}
+
+	cmd := exec.CommandContext(ctx, wineBinFromProcess(proc), "taskkill", "/PID", strconv.Itoa(proc.PID), "/F")
+	cmd.Env = append([]string(nil), proc.Environ...)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("wine taskkill pid=%d: %w", proc.PID, err)
+	}
+	return nil
+}
+
+func processEnv(proc *gr.Process, key string) string {
+	if proc == nil {
+		return ""
+	}
+	prefix := key + "="
+	for _, env := range proc.Environ {
+		if strings.HasPrefix(env, prefix) {
+			return env[len(prefix):]
+		}
+	}
+	return ""
+}
+
+func wineBinFromProcess(proc *gr.Process) string {
+	if proc != nil && len(proc.Cmdline) > 0 {
+		cmd := strings.TrimSpace(proc.Cmdline[0])
+		if cmd != "" && strings.Contains(strings.ToLower(filepath.Base(cmd)), "wine") {
+			return cmd
+		}
+	}
+	return "wine"
+}
+
+func RunnerForGame(g *game.Game) (gr.Runner, error) {
+
+	if strings.TrimSpace(g.RunnerPath) != "" {
+		return wine.New(
+			wine.WithWineBin(g.RunnerPath),
+			wine.WithDefaultPrefix(g.PrefixPath),
+		), nil
+	}
+
+	if g.Runner == "" || g.Runner == game.RunnerWine {
+		return autorunner.NewRunner(g.PrefixPath)
+	}
+
+	return nil, fmt.Errorf("%s runner is not supported by EngineV2 GR launcher", g.Runner)
+}
+
+func WineOptions(g *game.Game, args ...string) ([]gr.Option, error) {
+	background := g.RunnerConfig.Background
+
+	if hasRunnerConfig(g.RunnerConfig) {
+		opts := g.RunnerConfig.Options()
+		if len(args) > 0 {
+			opts = append(opts, gr.WithArgs(args...))
+		}
+		return opts, nil
+	}
+
+	defaults, err := autorunner.AutoOptionsForExe(g.Executable, autorunner.DefaultOptionsConfig{
+		WinePrefix: g.PrefixPath,
+		WorkingDir: WorkingDir(g),
+		WineBin:    g.RunnerPath,
+		Args:       args,
+		Env:        WineEnv(g),
+	})
+	if err != nil {
+		return nil, err
+	}
+	opts := defaults.Options
+	if background {
+		opts = append(opts, gr.WithBackground(true))
+	}
+	return opts, nil
+}
+
+func ConfigureRunner(g *game.Game) error {
+	if g == nil {
+		return errors.New("game is nil")
+	}
+	defaults, err := autorunner.AutoOptionsForExe(g.Executable, autorunner.DefaultOptionsConfig{
+		WinePrefix: g.PrefixPath,
+		WorkingDir: WorkingDir(g),
+		WineBin:    g.RunnerPath,
+		Env:        WineEnv(g),
+	})
+	if err != nil {
+		g.RunnerConfig = fallbackConfig(g)
+		return nil
+	}
+	g.RunnerConfig = gr.NewConfig(defaults.Options...)
+	return nil
+}
+
+func fallbackConfig(g *game.Game) gr.Config {
+	opts := make([]gr.Option, 0, 3)
+	if strings.TrimSpace(g.PrefixPath) != "" {
+		opts = append(opts, gr.WithWinePrefix(g.PrefixPath))
+	}
+	if dir := WorkingDir(g); strings.TrimSpace(dir) != "" {
+		opts = append(opts, gr.WithWorkingDir(dir))
+	}
+	if env := autorunner.RecommendedWineEnv(WineEnv(g)); len(env) > 0 {
+		opts = append(opts, gr.WithEnv(env...))
+	}
+	return gr.NewConfig(opts...)
+}
+
+func hasRunnerConfig(c gr.Config) bool {
+	return c.WorkingDir != "" ||
+		len(c.Args) > 0 ||
+		len(c.Envs) > 0 ||
+		c.SystemArch != "" ||
+		c.WinePrefix != "" ||
+		len(c.Dependencies) > 0 ||
+		c.Name != "" ||
+		c.PID != 0 ||
+		c.Session != "" ||
+		c.SessionID != ""
+}
+
+func WineEnv(g *game.Game) autorunner.WineEnvConfig {
+	cfg := autorunner.DefaultWineEnvConfig()
+
+	if locale := strings.TrimSpace(g.Locale); locale != "" {
+		cfg.Lang = locale
+		cfg.Extra = append(cfg.Extra,
+			"LC_ALL="+locale,
+			"LC_CTYPE="+locale,
+			"LC_MESSAGES="+locale,
+		)
+	}
+
+	for _, kv := range g.EnvVars {
+		key := strings.TrimSpace(kv.Key)
+		if key != "" {
+			cfg.Extra = append(cfg.Extra, key+"="+kv.Value)
+		}
+	}
+
+	return cfg
+}
+
+func WineTarget(g *game.Game) (string, []string) {
+	if desktop := WineVirtualDesktop(g); desktop != "" {
+		return "explorer", []string{"/desktop=vntext," + desktop, WindowsPathForWine(g)}
+	}
+	return g.Executable, nil
+}
+
+func WineVirtualDesktop(g *game.Game) string {
+	if g == nil {
+		return ""
+	}
+
+	switch desktop := strings.TrimSpace(g.VirtualDesktop); strings.ToLower(desktop) {
+	case "off", "false", "none", "disabled", "disable", "0":
+		return ""
+	case "":
+		return DefaultVirtualDesktop
+	default:
+		return desktop
+	}
+}
+
+func WindowsPathForWine(g *game.Game) string {
+	exe := g.Executable
+	if strings.TrimSpace(g.PrefixPath) == "" {
+		return exe
+	}
+
+	rel, err := filepath.Rel(filepath.Join(g.PrefixPath, "drive_c"), exe)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return exe
+	}
+
+	return `C:\` + strings.ReplaceAll(filepath.ToSlash(rel), "/", `\`)
+}
+
+func ValidateGame(g *game.Game) error {
+	if g == nil {
+		return errors.New("game is nil")
+	}
+	if strings.TrimSpace(g.Executable) == "" {
+		return errors.New("game executable is required")
+	}
+	if strings.TrimSpace(g.PrefixPath) == "" {
+		return errors.New("wine prefix path is required")
+	}
+	if _, err := os.Stat(g.Executable); err != nil {
+		return fmt.Errorf("game executable is not accessible: %s: %w", g.Executable, err)
+	}
+	return nil
+}
+
+func WorkingDir(g *game.Game) string {
+	if strings.TrimSpace(g.WorkingDir) != "" {
+		return g.WorkingDir
+	}
+	if strings.TrimSpace(g.Executable) != "" {
+		return filepath.Dir(g.Executable)
+	}
+	if strings.TrimSpace(g.GamePath) != "" {
+		return g.GamePath
+	}
+	return "."
+}

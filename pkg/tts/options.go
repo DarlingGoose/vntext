@@ -38,7 +38,7 @@ type Option func(*Options)
 
 func NewOptions(opts ...Option) Options {
 	o := Options{
-		Model:          "F5TTS_v1_Base",
+		Model:          defaultF5Model,
 		VocoderName:    "vocos",
 		Device:         "cpu",
 		DeviceFallback: []string{"cpu"},

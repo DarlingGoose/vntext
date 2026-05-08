@@ -28,11 +28,31 @@ func TestIsEngineDirectExeUsesSiblingKiriKiriFiles(t *testing.T) {
 	root := t.TempDir()
 	exe := filepath.Join(root, "Game.exe")
 	writeKiriTestFile(t, exe, "")
-	writeKiriTestFile(t, filepath.Join(root, "data.xp3"), "")
+	sourceDir := filepath.Join(root, "source")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	writeKiriTestFile(t, filepath.Join(sourceDir, "startup.tjs"), "")
+	if err := createXP3FromFolder(filepath.Join(root, "data.xp3"), sourceDir, false); err != nil {
+		t.Fatalf("create fixture xp3: %v", err)
+	}
 
 	eng := New()
 	if !eng.IsEngine(exe) {
 		t.Fatalf("expected direct exe with sibling KiriKiri files to be detected")
+	}
+}
+
+func TestIsEngineReturnsFalseWhenXP3CannotExtract(t *testing.T) {
+	root := t.TempDir()
+	exe := filepath.Join(root, "Game.exe")
+	writeKiriTestFile(t, exe, "")
+	writeKiriTestFile(t, filepath.Join(root, "startup.tjs"), "")
+	writeKiriTestFile(t, filepath.Join(root, "data.xp3"), "")
+
+	eng := New()
+	if eng.IsEngine(exe) {
+		t.Fatalf("expected direct exe with invalid XP3 archive not to be detected")
 	}
 }
 

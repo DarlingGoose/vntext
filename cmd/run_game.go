@@ -14,10 +14,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/DarlingGoose/gr"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/gameConfig"
-	"github.com/DarlingGoose/vntext/pkg/runner"
+
 	"github.com/spf13/cobra"
+)
+
+var errGameAlreadyRunning = errors.New("game is already running")
+
+const (
+	processStatusUnknown = iota
+	processStatusRunning
+	processStatusExited
+	processStatusStopped
 )
 
 type RunGameOptions struct {
@@ -80,8 +90,8 @@ func NewRunGameCommand() *cobra.Command {
 				}
 			}
 
-			status, err := RunSelectedGame(selected, opts)
-			if errors.Is(err, runner.IsAlreadyRunning) {
+			status, err := RunSelectedGame(cmd.Context(), selected, opts)
+			if errors.Is(err, errGameAlreadyRunning) {
 				fmt.Fprintf(cmd.OutOrStdout(), "game already running: %s pid=%d\n", selected.Name, status.PID)
 				return nil
 			}
@@ -160,8 +170,10 @@ func init() {
 	rootCmd.AddCommand(NewRunGameCommand())
 }
 
-func RunSelectedGame(g *game.Game, opts RunGameOptions) (*runner.ProcessStatus, error) {
-	r := runner.New()
+func RunSelectedGame(ctx context.Context, g *game.Game, opts RunGameOptions) (*GameProcessStatus, error) {
+	if g == nil {
+		return nil, errors.New("game is nil")
+	}
 
 	if strings.TrimSpace(opts.VirtualDesktop) != "" {
 		copy := *g
@@ -169,11 +181,97 @@ func RunSelectedGame(g *game.Game, opts RunGameOptions) (*runner.ProcessStatus, 
 		g = &copy
 	}
 
-	if opts.Sync || opts.Background {
-		return r.RunBackground(g)
+	eng, err := selectHookEngine(g, "")
+	if err != nil {
+		return nil, err
 	}
 
-	return r.Run(g)
+	copy := *g
+	copy.RunnerConfig.Background = opts.Background || opts.Sync
+
+	proc, err := eng.RunGame(ctx, &copy)
+	if err != nil {
+		return nil, err
+	}
+
+	status := processStatusFromGR(proc)
+	if status == nil {
+		status = &GameProcessStatus{Status: processStatusExited}
+	}
+	status.stop = func() error {
+		_, err := eng.StopGame(ctx, proc)
+		return err
+	}
+	return status, nil
+}
+
+func processStatusFromGR(proc *gr.Process) *GameProcessStatus {
+	if proc == nil {
+		return nil
+	}
+
+	pid := proc.PID
+	if pid == 0 && proc.Cmd != nil && proc.Cmd.Process != nil {
+		pid = proc.Cmd.Process.Pid
+	}
+
+	status := processStatusUnknown
+	switch proc.Status {
+	case gr.StatusRunning:
+		status = processStatusRunning
+	case gr.StatusExited:
+		status = processStatusExited
+	case gr.StatusStopped:
+		status = processStatusStopped
+	}
+
+	return &GameProcessStatus{
+		PID:     pid,
+		Message: proc.Status.String(),
+		Status:  status,
+		proc:    proc,
+	}
+}
+
+type GameProcessStatus struct {
+	PID     int
+	Message string
+	Status  int
+
+	proc   *gr.Process
+	cancel context.CancelFunc
+	waitCh chan error
+	stop   func() error
+}
+
+func (p *GameProcessStatus) Wait() error {
+	if p != nil && p.proc != nil && p.proc.Cmd != nil {
+		return p.proc.Cmd.Wait()
+	}
+	if p == nil || p.waitCh == nil {
+		return nil
+	}
+	return <-p.waitCh
+}
+
+func (p *GameProcessStatus) Kill() error {
+	if p == nil {
+		return nil
+	}
+
+	if p.cancel != nil {
+		p.cancel()
+	}
+
+	if p.stop != nil {
+		return p.stop()
+	}
+
+	if p.proc != nil && p.proc.Cmd != nil && p.proc.Cmd.Process != nil {
+		return p.proc.Cmd.Process.Kill()
+	}
+
+	return nil
 }
 
 func DefaultGameConfigDir() string {
@@ -184,7 +282,7 @@ func SyncGameProcess(
 	ctx context.Context,
 	out io.Writer,
 	g *game.Game,
-	status *runner.ProcessStatus,
+	status *GameProcessStatus,
 	opts RunGameOptions,
 ) error {
 	if status == nil {

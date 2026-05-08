@@ -55,30 +55,51 @@ func TestInstallXP3TextHookDetectsStartupAfterExtract(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outDir, textLoggerFileName)); err != nil {
 		t.Fatalf("text logger was not packed: %v", err)
 	}
+	loggerSource, err := os.ReadFile(filepath.Join(outDir, textLoggerFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantLogExe := escapeTJSString(winePathForHostPath(filepath.Join(root, "log.exe")))
+	if !strings.Contains(string(loggerSource), `var __TEXT_LOGGER_EXE_PATH = "`+wantLogExe+`";`) {
+		t.Fatalf("text logger does not use absolute log.exe path %q", wantLogExe)
+	}
 	if g.TextHookLogFile != filepath.Join(root, "vntext.log") {
 		t.Fatalf("TextHookLogFile = %q", g.TextHookLogFile)
 	}
 }
 
-func TestTextLoggerInstallsChoiceAndMenuTagHooks(t *testing.T) {
-	tags := map[string]string{
-		"button":   "__tl_wrap_button",
-		"link":     "__tl_wrap_link",
-		"glink":    "__tl_wrap_glink",
-		"select":   "__tl_wrap_select",
-		"seladd":   "__tl_wrap_seladd",
-		"selopt":   "__tl_wrap_selopt",
-		"mselect":  "__tl_wrap_mselect",
-		"mseladd":  "__tl_wrap_mseladd",
-		"mselopt":  "__tl_wrap_mselopt",
-		"checkbox": "__tl_wrap_checkbox",
-		"edit":     "__tl_wrap_edit",
+func TestTextLoggerDoesNotInstallChoiceAndMenuTagHooks(t *testing.T) {
+	tags := []string{
+		"button",
+		"link",
+		"glink",
+		"select",
+		"seladd",
+		"selopt",
+		"mselect",
+		"mseladd",
+		"mselopt",
+		"checkbox",
+		"edit",
 	}
 
-	for tag, wrapper := range tags {
-		install := `__tl_install_tag("` + tag + `", ` + wrapper + `);`
-		if !strings.Contains(textLoggerSource, install) {
-			t.Fatalf("text logger does not install %s hook %s", tag, wrapper)
+	for _, tag := range tags {
+		install := `    __tl_install_tag("` + tag + `",`
+		if strings.Contains(textLoggerSource, install) {
+			t.Fatalf("text logger installs save/menu-sensitive tag hook %s", tag)
+		}
+	}
+
+	required := []string{
+		"var __TEXT_LOGGER_SHOW_POPUP = false;",
+		"var __TEXT_LOGGER_LOG_CONTROL_TAGS = false;",
+		"if (!__TEXT_LOGGER_LOG_CONTROL_TAGS)",
+		"spawning log.exe while those UIs are being built can freeze old KAG games",
+		`appendTextLog("[text_logger][system] text_logger installed");`,
+	}
+	for _, snippet := range required {
+		if !strings.Contains(textLoggerSource, snippet) {
+			t.Fatalf("text logger missing safety snippet: %s", snippet)
 		}
 	}
 }

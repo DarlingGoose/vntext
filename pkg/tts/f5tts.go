@@ -18,6 +18,12 @@ import (
 const (
 	DefaultF5Binary = "f5-tts_infer-cli"
 	BackendF5TTS    = "f5-tts"
+
+	defaultF5Model = "F5TTS_v1_Base"
+
+	japaneseF5Model      = "F5TTS_Base"
+	japaneseF5Checkpoint = "hf://Jmica/F5TTS/JA_21999120/model_21999120.pt"
+	japaneseF5Vocab      = "hf://Jmica/F5TTS/JA_21999120/vocab_japanese.txt"
 )
 
 type F5TTS struct {
@@ -338,6 +344,7 @@ func (f *F5TTS) resolveSpeaker(id string) (Speaker, error) {
 
 func (f *F5TTS) buildArgs(text string, speaker Speaker, o Options) []string {
 	var args []string
+	o = applyLanguageDefaults(o, speaker)
 
 	add := func(flag string, value string) {
 		value = strings.TrimSpace(value)
@@ -375,6 +382,41 @@ func (f *F5TTS) buildArgs(text string, speaker Speaker, o Options) []string {
 	addFloat(&args, "--fix_duration", o.FixDuration)
 
 	return args
+}
+
+func applyLanguageDefaults(o Options, speaker Speaker) Options {
+	language := strings.TrimSpace(o.Language)
+	if language == "" {
+		language = strings.TrimSpace(speaker.Language)
+	}
+
+	if !isJapaneseLanguage(language) {
+		return o
+	}
+
+	if strings.TrimSpace(o.Model) == "" || strings.TrimSpace(o.Model) == defaultF5Model {
+		o.Model = japaneseF5Model
+	}
+	if strings.TrimSpace(o.CkptFile) == "" {
+		o.CkptFile = japaneseF5Checkpoint
+	}
+	if strings.TrimSpace(o.VocabFile) == "" {
+		o.VocabFile = japaneseF5Vocab
+	}
+
+	return o
+}
+
+func isJapaneseLanguage(language string) bool {
+	language = strings.ToLower(strings.TrimSpace(language))
+	language = strings.ReplaceAll(language, "_", "-")
+
+	switch language {
+	case "ja", "jp", "jpn", "japanese":
+		return true
+	}
+
+	return strings.HasPrefix(language, "ja-")
 }
 
 func expectedOutputPath(o Options) string {

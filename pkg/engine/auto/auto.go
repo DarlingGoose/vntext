@@ -3,14 +3,11 @@ package auto
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"log/slog"
-	"path/filepath"
 
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/engine/kirikiri2"
 	"github.com/DarlingGoose/vntext/pkg/engine/rpgmaker"
-	"github.com/DarlingGoose/vntext/pkg/runner/installer"
+
 	"github.com/DarlingGoose/vntext/pkg/util"
 )
 
@@ -37,45 +34,15 @@ func SelectEngine(dir string) (engine.Engine, error) {
 	return nil, engine.ErrNoEngineFound
 }
 
-func SelectOrInstallEngine(ctx context.Context, path string) (engine.Engine, error) {
-	e, err := SelectEngine(path)
-	if err == nil {
-		return e, nil
+func SelectEngineV2(dir string) (engine.EngineV2, error) {
+	engineList := []engine.EngineV2{
+		rpgmaker.New(),
+		kirikiri2.New(),
 	}
-
-	if !util.IsExeFile(path) {
-		return nil, err
-	}
-
-	install, detectErr := DetectInstallerExe(ctx, path)
-	if detectErr != nil {
-		return nil, err
-	}
-
-	if !install.IsInstaller {
-		return nil, err
-	}
-
-	result, installErr := installer.InstallWindowsExe(ctx, installer.InstallOptions{
-		InstallerPath: path,
-		PrefixPath:    filepath.Join(util.ConfigBaseDir(), "prefixes", install.Name),
-		Backend:       installer.BackendWine,
-	})
-	if installErr != nil {
-		return nil, installErr
-	}
-
-	for _, candidate := range result.Candidates {
-		slog.Info("checking Candidates", "dir", candidate)
-		e, err := SelectEngine(candidate)
-		if err == nil {
+	for _, e := range engineList {
+		if e.IsEngine(dir) {
 			return e, nil
 		}
 	}
-
-	return nil, fmt.Errorf(
-		"%w: installer completed, but no engine found in prefix %s",
-		engine.ErrNoEngineFound,
-		result.PrefixPath,
-	)
+	return nil, engine.ErrNoEngineFound
 }

@@ -5,17 +5,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/DarlingGoose/krkrxp3/pkg/xp3"
 )
 
 type KiriKiriProfile struct {
-	IsKiriKiri      bool
-	HasTJS          bool
-	HasXP3          bool
-	HasStartupTJS   bool
-	HasDataXP3      bool
-	HasMojibakeName bool
-	HasJapaneseName bool
-	Reason          string
+	IsKiriKiri        bool
+	HasTJS            bool
+	HasXP3            bool
+	HasExtractableXP3 bool
+	HasStartupTJS     bool
+	HasDataXP3        bool
+	HasMojibakeName   bool
+	HasJapaneseName   bool
+	Reason            string
 }
 
 func DetectKiriKiriProfile(root string) KiriKiriProfile {
@@ -53,6 +56,9 @@ func detectKiriKiriProfile(root string, recursive bool) KiriKiriProfile {
 			p.HasTJS = true
 		case ".xp3":
 			p.HasXP3 = true
+			if check, err := xp3.CanExtract(path, xp3.EncryptionNone); err == nil && check.Extractable {
+				p.HasExtractableXP3 = true
+			}
 		}
 
 		switch lower {
@@ -85,11 +91,17 @@ func detectKiriKiriProfile(root string, recursive bool) KiriKiriProfile {
 	if p.HasXP3 {
 		reasons = append(reasons, "XP3 archives detected")
 	}
+	if p.HasExtractableXP3 {
+		reasons = append(reasons, "extractable XP3 archive detected")
+	}
 
 	p.IsKiriKiri =
 		p.HasStartupTJS ||
-			(p.HasTJS && p.HasXP3) ||
-			(p.HasDataXP3 && hasLikelyKiriKiriExe(root, recursive))
+			(p.HasTJS && p.HasExtractableXP3) ||
+			(p.HasDataXP3 && p.HasExtractableXP3 && hasLikelyKiriKiriExe(root, recursive))
+	if p.IsKiriKiri && p.HasXP3 && !p.HasExtractableXP3 {
+		p.IsKiriKiri = false
+	}
 
 	p.Reason = strings.Join(reasons, ", ")
 	return p

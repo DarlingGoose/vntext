@@ -1,6 +1,7 @@
 package rpgmaker
 
 import (
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DarlingGoose/vntext/pkg/engine"
+	"github.com/DarlingGoose/vntext/pkg/engine/enginerun"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/util"
 )
@@ -88,6 +90,19 @@ func (e *Engine) IsDirEngine(dir string) bool {
 }
 
 func (e *Engine) InstallGame(dir string) (*game.Game, error) {
+	g, err := e.AddGame(context.Background(), dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.InstallTextHook(g); err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
+func (e *Engine) AddGame(ctx context.Context, dir string) (*game.Game, error) {
+	_ = ctx
+
 	projectRoot, detectedEngine, err := resolveProjectRoot(dir)
 	if err != nil {
 		return nil, err
@@ -107,13 +122,18 @@ func (e *Engine) InstallGame(dir string) (*game.Game, error) {
 		return nil, err
 	}
 	name := util.DeriveGameName(projectRoot, exe, info.IsDir())
-	prefixPath := e.prefixPathFor(name)
+	prefixPath, err := e.prefixPathFor(name)
+	if err != nil {
+		return nil, err
+	}
 	locale := DetectGameLocale(projectRoot)
 	g := &game.Game{
 		Name:          name,
 		GamePath:      projectRoot,
 		Executable:    exe,
+		Architecture:  detectArchitecture(exe),
 		WorkingDir:    filepath.Dir(exe),
+		Runner:        game.RunnerWine,
 		PrefixPath:    prefixPath,
 		RequiresSteam: false,
 		CreatedAt:     time.Now(),
@@ -141,7 +161,7 @@ func (e *Engine) InstallGame(dir string) (*game.Game, error) {
 		g.ImagePath = image
 	}
 
-	if err := e.InstallTextHook(g); err != nil {
+	if err := enginerun.ConfigureRunner(g); err != nil {
 		return nil, err
 	}
 
@@ -203,11 +223,11 @@ func (e *Engine) IsEngine(dir string) bool {
 	return err == nil
 }
 
-func (e *Engine) prefixPathFor(name string) string {
+func (e *Engine) prefixPathFor(name string) (string, error) {
 	if strings.TrimSpace(e.PrefixRoot) == "" {
-		return ""
+		return enginerun.PrefixPath(e.Name(), "", name)
 	}
-	return filepath.Join(e.PrefixRoot, safePathName(name))
+	return filepath.Join(e.PrefixRoot, safePathName(name)), nil
 }
 
 func detectEngine(projectRoot string) (string, bool) {

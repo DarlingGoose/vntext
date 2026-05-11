@@ -44,6 +44,9 @@ func RunGame(ctx context.Context, g *game.Game) (*gr.Process, error) {
 		return nil, err
 	}
 
+	// Games are long-running GUI processes. Always launch them async.
+	opts = append(opts, gr.WithBackground(true))
+
 	return r.Run(ctx, target, opts...)
 }
 
@@ -52,23 +55,30 @@ func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
 		return nil, errors.New("process is nil")
 	}
 
-	if proc.WinePID > 0 {
-		if err := stopWineProcess(ctx, proc); err != nil {
-			return proc, err
-		}
-		proc.Status = gr.StatusStopped
-		return proc, nil
-	}
-
+	// Prefer killing the host process group first.
+	// For gamescope this should terminate gamescope + children.
 	if proc.Cmd != nil {
 		if proc.Cmd.Cancel != nil {
 			if err := proc.Cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				return proc, err
 			}
-		} else if proc.Cmd.Process != nil {
-			if err := proc.Cmd.Process.Kill(); err != nil {
+			proc.Status = gr.StatusStopped
+			return proc, nil
+		}
+
+		if proc.Cmd.Process != nil {
+			if err := proc.Cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				return proc, err
 			}
+			proc.Status = gr.StatusStopped
+			return proc, nil
+		}
+	}
+
+	// Fallback for wine-only process handles.
+	if proc.WinePID > 0 {
+		if err := stopWineProcess(ctx, proc); err != nil {
+			return proc, err
 		}
 		proc.Status = gr.StatusStopped
 		return proc, nil
@@ -81,6 +91,7 @@ func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
 	if err := stopWineProcess(ctx, proc); err != nil {
 		return proc, err
 	}
+
 	proc.Status = gr.StatusStopped
 	return proc, nil
 }
@@ -390,6 +401,17 @@ func WineTarget(g *game.Game) (string, []string) {
 func WineVirtualDesktop(g *game.Game) string {
 	if g == nil {
 		return ""
+	}
+
+	// gamescope already provides the contained display/window.
+	// Do not nest Wine explorer virtual desktop inside gamescope.
+	if g.Runner == game.RunnerGamescope {
+		switch desktop := strings.TrimSpace(g.VirtualDesktop); strings.ToLower(desktop) {
+		case "", "off", "false", "none", "disabled", "disable", "0":
+			return ""
+		default:
+			return desktop
+		}
 	}
 
 	switch desktop := strings.TrimSpace(g.VirtualDesktop); strings.ToLower(desktop) {

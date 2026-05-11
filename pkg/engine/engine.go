@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/DarlingGoose/tr/pkg/textractor"
 	"github.com/DarlingGoose/vntext/pkg/game"
@@ -56,6 +57,7 @@ type Line struct {
 	Hook    string
 	Text    string
 	Speaker string
+	Time    time.Time
 }
 
 //todo add an option to get/find media files

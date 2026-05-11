@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,11 +60,12 @@ func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
 	// Prefer killing the host process group first.
 	// For gamescope this should terminate gamescope + children.
 	if proc.Cmd != nil {
-
+		err := proc.Cmd.Process.Kill()
+		if err != nil {
+			slog.Error("failed to kill process", "err", err)
+		}
+		time.Sleep(time.Second)
 		if proc.Cmd.Cancel != nil {
-
-			proc.Cmd.Process.Kill()
-			time.Sleep(time.Second)
 			if err := proc.Cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				return proc, err
 			}
@@ -152,7 +154,10 @@ func RunnerForGame(g *game.Game) (gr.Runner, error) {
 		if hasWineConfig(g.WineConfig) || strings.TrimSpace(g.RunnerPath) != "" {
 			return wine.NewFromOptions(wineOptionsForGame(g)), nil
 		}
-		return autorunner.NewRunner(g.PrefixPath)
+		return autorunner.NewRunnerWithOptions(g.PrefixPath, nil, []gamescope.Option{
+			gamescope.WithFullscreen(false),
+			gamescope.WithResolution(1280, 720),
+		})
 	}
 
 	return nil, fmt.Errorf("%s runner is not supported by EngineV2 GR launcher", g.Runner)

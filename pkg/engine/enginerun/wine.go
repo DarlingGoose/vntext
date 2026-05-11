@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/DarlingGoose/gr"
 	"github.com/DarlingGoose/gr/autorunner"
@@ -58,7 +59,11 @@ func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
 	// Prefer killing the host process group first.
 	// For gamescope this should terminate gamescope + children.
 	if proc.Cmd != nil {
+
 		if proc.Cmd.Cancel != nil {
+
+			proc.Cmd.Process.Kill()
+			time.Sleep(time.Second)
 			if err := proc.Cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				return proc, err
 			}
@@ -182,6 +187,7 @@ func gamescopeOptionsForGame(g *game.Game) gamescope.Options {
 		cfg = *g.GamescopeConfig
 	}
 	cfg.UseWine = true
+	cfg.Fullscreen = true
 	if strings.TrimSpace(g.RunnerPath) != "" {
 		cfg.GamescopeBin = g.RunnerPath
 	}
@@ -401,17 +407,6 @@ func WineTarget(g *game.Game) (string, []string) {
 func WineVirtualDesktop(g *game.Game) string {
 	if g == nil {
 		return ""
-	}
-
-	// gamescope already provides the contained display/window.
-	// Do not nest Wine explorer virtual desktop inside gamescope.
-	if g.Runner == game.RunnerGamescope {
-		switch desktop := strings.TrimSpace(g.VirtualDesktop); strings.ToLower(desktop) {
-		case "", "off", "false", "none", "disabled", "disable", "0":
-			return ""
-		default:
-			return desktop
-		}
 	}
 
 	switch desktop := strings.TrimSpace(g.VirtualDesktop); strings.ToLower(desktop) {

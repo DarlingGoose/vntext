@@ -58,6 +58,8 @@ type Line struct {
 	Text    string
 	Speaker string
 	Time    time.Time
+	RawTime string
+	Voice   string
 }
 
 //todo add an option to get/find media files

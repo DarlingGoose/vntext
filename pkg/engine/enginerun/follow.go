@@ -123,7 +123,10 @@ func waitOpen(ctx context.Context, path string) (*os.File, error) {
 }
 
 func emitLine(ctx context.Context, out chan<- engine.Line, raw string, filters []func(*engine.Line) *engine.Line) bool {
-	line := &engine.Line{Raw: raw}
+	line, err := engine.ParseLogLine(raw)
+	if err != nil {
+		line = &engine.Line{Raw: raw}
+	}
 	for _, filter := range filters {
 		if filter != nil {
 			line = filter(line)

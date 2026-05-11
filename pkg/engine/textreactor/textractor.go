@@ -258,12 +258,13 @@ func emitTextractorLines(ctx context.Context, lines <-chan *textractor.Line, fil
 			if l == nil {
 				continue
 			}
-			line := &engine.Line{
-				Raw:     l.Raw,
-				Hook:    l.Hook,
-				Text:    l.Text,
-				Speaker: l.Speaker,
+			line, err := engine.ParseLogLine(l.Raw)
+			if err != nil {
+				line = &engine.Line{Raw: l.Raw}
 			}
+			line.Hook = l.Hook
+			line.Text = l.Text
+			line.Speaker = l.Speaker
 			for _, filter := range filters {
 				if filter != nil {
 					line = filter(line)

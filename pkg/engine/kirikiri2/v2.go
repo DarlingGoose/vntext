@@ -14,17 +14,15 @@ var _ engine.EngineV2 = (*Engine)(nil)
 
 func (e *Engine) GetTextractor(game *game.Game) *textractor.Client {
 	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (e *Engine) ManagedGames() []*game.Game {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (e *Engine) Shutdown() error {
-	//TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (e *Engine) AddGame(ctx context.Context, path string) (*game.Game, error) {

@@ -10,10 +10,12 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/game"
-	"github.com/DarlingGoose/vntext/pkg/textfile"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/transform"
 )
 
 const defaultFollowPoll = 250 * time.Millisecond
@@ -111,11 +113,17 @@ func followFile(ctx context.Context, out chan<- engine.Line, path string, cfg en
 
 func decodeFollowLine(raw []byte) string {
 	raw = bytes.TrimRight(raw, "\r\n")
-	_, decoded, err := textfile.Decode(raw)
-	if err != nil {
+
+	if utf8.Valid(raw) {
 		return string(raw)
 	}
-	return decoded
+
+	decoded, _, err := transform.String(japanese.ShiftJIS.NewDecoder(), string(raw))
+	if err == nil && !strings.ContainsRune(decoded, utf8.RuneError) {
+		return decoded
+	}
+
+	return string(raw)
 }
 
 func waitOpen(ctx context.Context, path string) (*os.File, error) {

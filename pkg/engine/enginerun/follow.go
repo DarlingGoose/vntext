@@ -2,6 +2,7 @@ package enginerun
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/game"
+	"github.com/DarlingGoose/vntext/pkg/textfile"
 )
 
 const defaultFollowPoll = 250 * time.Millisecond
@@ -63,7 +65,7 @@ func emitHistory(ctx context.Context, out chan<- engine.Line, path string, cfg e
 	var lines []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
-		lines = append(lines, sc.Text())
+		lines = append(lines, decodeFollowLine(sc.Bytes()))
 	}
 
 	if cfg.MaxLines > 0 && len(lines) > cfg.MaxLines {
@@ -89,7 +91,7 @@ func followFile(ctx context.Context, out chan<- engine.Line, path string, cfg en
 
 	for {
 		line, err := reader.ReadString('\n')
-		if len(line) > 0 && !emitLine(ctx, out, strings.TrimRight(line, "\r\n"), cfg.Filters) {
+		if len(line) > 0 && !emitLine(ctx, out, decodeFollowLine([]byte(line)), cfg.Filters) {
 			return
 		}
 		if err == nil {
@@ -105,6 +107,15 @@ func followFile(ctx context.Context, out chan<- engine.Line, path string, cfg en
 		case <-time.After(defaultFollowPoll):
 		}
 	}
+}
+
+func decodeFollowLine(raw []byte) string {
+	raw = bytes.TrimRight(raw, "\r\n")
+	_, decoded, err := textfile.Decode(raw)
+	if err != nil {
+		return string(raw)
+	}
+	return decoded
 }
 
 func waitOpen(ctx context.Context, path string) (*os.File, error) {

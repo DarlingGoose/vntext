@@ -3,7 +3,7 @@ module github.com/DarlingGoose/vntext
 go 1.26.2
 
 require (
-	github.com/DarlingGoose/gr v0.0.22
+	github.com/DarlingGoose/gr v0.0.23
 	github.com/DarlingGoose/krkrxp3 v0.0.0-20260506230704-7038f45dab8d
 	github.com/DarlingGoose/tr v0.0.3
 	github.com/charmbracelet/bubbletea v1.3.10

@@ -1,20 +1,16 @@
 package artemis
 
 import (
-	"bufio"
 	"context"
 	"embed"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"mime"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -204,33 +200,74 @@ func hasRunnerConfig(c gr.Config) bool {
 		c.SessionID != ""
 }
 
-func (e *Engine) IsEngine(dir string) bool {
-	if dir == "" {
+func (e *Engine) IsEngine(path string) bool {
+	dir, ok := resolveGameDir(path)
+	if !ok {
 		return false
 	}
-	slog.Info(dir)
+
+	slog.Info("checking artemis engine", "input", path, "dir", dir)
 
 	if exists(filepath.Join(dir, "root.pfs")) {
-		slog.Info("matches root.pfs.*")
+		slog.Info("artemis match", "reason", "root.pfs", "dir", dir)
 		return true
 	}
 
 	if matches, _ := filepath.Glob(filepath.Join(dir, "root.pfs.*")); len(matches) > 0 {
-		slog.Info("matches root.pfs.*")
+		slog.Info("artemis match", "reason", "root.pfs.*", "dir", dir, "matches", matches)
 		return true
 	}
 
 	if matches, _ := filepath.Glob(filepath.Join(dir, "*.pfs")); len(matches) > 0 {
-		slog.Info(" matches *.pfs")
+		slog.Info("artemis match", "reason", "*.pfs", "dir", dir, "matches", matches)
 		return true
 	}
 
 	// Already extracted Artemis-like layout.
 	if matches, _ := filepath.Glob(filepath.Join(dir, "root*", "system", "adv", "*.lua")); len(matches) > 0 {
+		slog.Info("artemis match", "reason", "root*/system/adv/*.lua", "dir", dir, "matches", matches)
+		return true
+	}
+
+	// Some extracted Artemis layouts have these even if adv/*.lua is absent.
+	if exists(filepath.Join(dir, "system", "first.iet")) ||
+		exists(filepath.Join(dir, "system", "msg.iet")) ||
+		exists(filepath.Join(dir, "scenario", "start.txt")) {
+		slog.Info("artemis match", "reason", "extracted system/scenario files", "dir", dir)
 		return true
 	}
 
 	return false
+}
+
+func resolveGameDir(path string) (string, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", false
+	}
+
+	clean := filepath.Clean(path)
+
+	st, err := os.Stat(clean)
+	if err != nil {
+		return "", false
+	}
+
+	if st.IsDir() {
+		return clean, true
+	}
+
+	if strings.EqualFold(filepath.Ext(clean), ".exe") {
+		return filepath.Dir(clean), true
+	}
+
+	// Optional: for non-exe files, still check their parent if you want.
+	// If you only want .exe special-casing, remove this block.
+	if !st.IsDir() {
+		return filepath.Dir(clean), true
+	}
+
+	return "", false
 }
 
 func (e *Engine) AddGame(ctx context.Context, gamePath string) (*game.Game, error) {
@@ -472,9 +509,6 @@ func findPFSArchives(dir string) ([]string, error) {
 	if exists(main) {
 		archives = append(archives, main)
 	}
-
-	// Some tools need extracting split parts directly; some only need root.pfs.
-	// Keep support for both because your TODO calls out root.pfs.002 separately.
 	matches, err := filepath.Glob(filepath.Join(dir, "root.pfs.*"))
 	if err != nil {
 		return nil, err
@@ -679,283 +713,22 @@ func patchLikelyLuaEntryPoints(root string, debug bool) ([]string, error) {
 	return patched, nil
 }
 
+//go:embed plugin/artemis_embed.lua
+var embedHook string
+
 func artemisHookBlock(debug bool) string {
-	lines := []string{
-		`if __ymn_artemis_backlog_logger_loaded ~= true then`,
-		`__ymn_artemis_backlog_logger_loaded = true`,
-
-		`local function __ymn_quote(s)`,
-		`    s = tostring(s or "")`,
-		`    s = string.gsub(s, "\\", "\\\\")`,
-		`    s = string.gsub(s, '"', '\\"')`,
-		`    return '"' .. s .. '"'`,
-		`end`,
-
-		`local function __ymn_log(msg, speaker, voice)`,
-		`    msg = tostring(msg or "")`,
-		`    if msg == "" then return end`,
-		``,
-		`    local cmd = "log.exe "`,
-		`    if speaker ~= nil and tostring(speaker) ~= "" then`,
-		`        cmd = cmd .. "-c " .. __ymn_quote(speaker) .. " "`,
-		`    end`,
-		`    if voice ~= nil and tostring(voice) ~= "" then`,
-		`        cmd = cmd .. "-v " .. __ymn_quote(voice) .. " "`,
-		`    end`,
-		`    cmd = cmd .. __ymn_quote(msg) .. " > NUL 2>&1"`,
-		``,
-		`    pcall(os.execute, cmd)`,
-		`end`,
-
-		`local function __ymn_clean(s)`,
-		`    s = tostring(s or "")`,
-		`    s = string.gsub(s, "\r", "")`,
-		`    s = string.gsub(s, "\n", "\\n")`,
-		`    s = string.gsub(s, "^%s+", "")`,
-		`    s = string.gsub(s, "%s+$", "")`,
-		`    return s`,
-		`end`,
-
-		`local __ymn_current_speaker = ""`,
-		`local __ymn_last_text = ""`,
-
-		`if type(set_backlog_name) == "function" and not __ymn_original_set_backlog_name then`,
-		`    __ymn_original_set_backlog_name = set_backlog_name`,
-		`    set_backlog_name = function(name)`,
-		`        __ymn_current_speaker = __ymn_clean(name)`,
-		`        return __ymn_original_set_backlog_name(name)`,
-		`    end`,
-		`    __ymn_log("Yomuna wrapped set_backlog_name")`,
-		`end`,
-
-		`if type(set_backlog_text) == "function" and not __ymn_original_set_backlog_text then`,
-		`    __ymn_original_set_backlog_text = set_backlog_text`,
-		`    set_backlog_text = function(com, param)`,
-		`        if type(param) == "table" then`,
-		`            local text = __ymn_clean(param.data or param.text or param["0"] or "")`,
-		`            if text ~= "" and text ~= __ymn_last_text then`,
-		`                __ymn_last_text = text`,
-		`                __ymn_log(text, __ymn_current_speaker, "")`,
-		`            end`,
-		`        end`,
-		`        return __ymn_original_set_backlog_text(com, param)`,
-		`    end`,
-		`    __ymn_log("Yomuna wrapped set_backlog_text")`,
-		`end`,
-
-		`__ymn_log("Yomuna Artemis backlog logger loaded")`,
-		`end`,
-	}
+	lines := []string{embedHook}
 
 	if debug {
 		lines = append([]string{
-			`pcall(os.execute, "log.exe \"Yomuna direct hook reached backlog\"")`,
+			`__ymn_log("[system]Yomuna direct hook reached backlog")`,
 		}, lines...)
 	}
 
-	println(strings.Join(lines, "\n"))
 	return "\n" +
 		hookMarkerStart + "\n" +
 		strings.Join(lines, "\n") + "\n" +
 		hookMarkerEnd + "\n"
-}
-
-func appendHookOnce(path, hook string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	text := string(data)
-	if strings.Contains(text, hookMarkerStart) {
-		return nil
-	}
-
-	backup := path + ".yomuna.bak"
-	if !exists(backup) {
-		if err := os.WriteFile(backup, data, 0o644); err != nil {
-			return err
-		}
-	}
-
-	return os.WriteFile(path, append(data, []byte(hook)...), 0o644)
-}
-
-func followFile(ctx context.Context, path string, opt FollowGameOptions, out chan<- Line) error {
-	var offset int64
-
-	if opt.History {
-		lines, err := readExistingLines(path, opt.MaxLines)
-		if err == nil {
-			for _, raw := range lines {
-				if l := parseLogLine(raw); l != nil {
-					l = applyFilters(l, opt.Filters)
-					if l != nil {
-						select {
-						case out <- *l:
-						case <-ctx.Done():
-							return ctx.Err()
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if st, err := os.Stat(path); err == nil && !opt.History {
-		offset = st.Size()
-	}
-
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			next, err := readNewLines(path, offset, out, opt)
-			if err == nil {
-				offset = next
-			}
-		}
-	}
-}
-
-func readNewLines(path string, offset int64, out chan<- Line, opt FollowGameOptions) (int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return offset, err
-	}
-	defer f.Close()
-
-	st, err := f.Stat()
-	if err != nil {
-		return offset, err
-	}
-
-	if st.Size() < offset {
-		offset = 0
-	}
-
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return offset, err
-	}
-
-	sc := bufio.NewScanner(f)
-	buf := make([]byte, 0, 1024*1024)
-	sc.Buffer(buf, 8*1024*1024)
-
-	for sc.Scan() {
-		raw := sc.Text()
-		l := parseLogLine(raw)
-		if l == nil {
-			continue
-		}
-
-		l = applyFilters(l, opt.Filters)
-		if l == nil {
-			continue
-		}
-
-		out <- *l
-	}
-
-	pos, _ := f.Seek(0, io.SeekCurrent)
-	return pos, sc.Err()
-}
-
-func readExistingLines(path string, max int) ([]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	if max > 0 && len(lines) > max {
-		lines = lines[len(lines)-max:]
-	}
-
-	return lines, nil
-}
-
-func parseLogLine(raw string) *Line {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-
-	var rec struct {
-		Engine  string `json:"engine"`
-		Game    string `json:"game"`
-		Source  string `json:"source"`
-		Speaker string `json:"speaker"`
-		Voice   string `json:"voice"`
-		Text    string `json:"text"`
-		Time    string `json:"time"`
-	}
-
-	if strings.HasPrefix(raw, "{") {
-		if err := json.Unmarshal([]byte(raw), &rec); err == nil && strings.TrimSpace(rec.Text) != "" {
-			t, _ := time.Parse(time.RFC3339, rec.Time)
-			if t.IsZero() {
-				t = time.Now()
-			}
-
-			engine := rec.Engine
-			if engine == "" {
-				engine = engineName
-			}
-
-			return &Line{
-				Engine:  engine,
-				Game:    rec.Game,
-				Source:  rec.Source,
-				Speaker: rec.Speaker,
-				Voice:   rec.Voice,
-				Text:    strings.TrimSpace(rec.Text),
-				Time:    t,
-				Raw:     raw,
-			}
-		}
-	}
-
-	// Plain fallback:
-	// [2026-...][engine:artemis][source:x]: text
-	text := raw
-	if idx := strings.LastIndex(raw, "]: "); idx >= 0 && idx+3 < len(raw) {
-		text = raw[idx+3:]
-	}
-
-	return &Line{
-		Engine: engineName,
-		Source: "plain",
-		Text:   strings.TrimSpace(text),
-		Time:   time.Now(),
-		Raw:    raw,
-	}
-}
-
-func applyFilters(l *Line, filters []func(l *Line) *Line) *Line {
-	if l == nil {
-		return nil
-	}
-
-	for _, f := range filters {
-		if f == nil {
-			continue
-		}
-		l = f(l)
-		if l == nil {
-			return nil
-		}
-	}
-
-	return l
 }
 
 func findExecutable(dir string) (string, error) {
@@ -1021,31 +794,4 @@ func uniqueStrings(in []string) []string {
 	}
 
 	return out
-}
-
-// Useful filters.
-
-var japaneseLooseRE = regexp.MustCompile(`[\p{Hiragana}\p{Katakana}\p{Han}ー]`)
-
-func FilterJapaneseOnly(l *Line) *Line {
-	if l == nil || !japaneseLooseRE.MatchString(l.Text) {
-		return nil
-	}
-	return l
-}
-
-func FilterDedupe() func(l *Line) *Line {
-	var last string
-	return func(l *Line) *Line {
-		if l == nil {
-			return nil
-		}
-		text := strings.TrimSpace(l.Text)
-		if text == "" || text == last {
-			return nil
-		}
-		last = text
-		l.Text = text
-		return l
-	}
 }

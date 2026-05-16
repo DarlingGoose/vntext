@@ -41,6 +41,7 @@ func RunGame(ctx context.Context, g *game.Game) (*gr.Process, error) {
 	}
 
 	target, args := WineTarget(g)
+
 	opts, err := WineOptions(g, args...)
 	if err != nil {
 		return nil, err
@@ -57,29 +58,28 @@ func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
 		return nil, errors.New("process is nil")
 	}
 
-	// Prefer killing the host process group first.
+	// Prefer killing the host process first.
 	// For gamescope this should terminate gamescope + children.
 	if proc.Cmd != nil {
-		err := proc.Cmd.Process.Kill()
-		if err != nil {
-			slog.Error("failed to kill process", "err", err)
+		if proc.Cmd.Process != nil {
+			if err := proc.Cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				slog.Error("failed to kill process", "err", err)
+			}
 		}
+
 		time.Sleep(time.Second)
+
 		if proc.Cmd.Cancel != nil {
 			if err := proc.Cmd.Cancel(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				return proc, err
 			}
+
 			proc.Status = gr.StatusStopped
 			return proc, nil
 		}
 
-		if proc.Cmd.Process != nil {
-			if err := proc.Cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-				return proc, err
-			}
-			proc.Status = gr.StatusStopped
-			return proc, nil
-		}
+		proc.Status = gr.StatusStopped
+		return proc, nil
 	}
 
 	// Fallback for wine-only process handles.
@@ -87,6 +87,7 @@ func StopGame(ctx context.Context, proc *gr.Process) (*gr.Process, error) {
 		if err := stopWineProcess(ctx, proc); err != nil {
 			return proc, err
 		}
+
 		proc.Status = gr.StatusStopped
 		return proc, nil
 	}
@@ -151,13 +152,7 @@ func RunnerForGame(g *game.Game) (gr.Runner, error) {
 	}
 
 	if g.Runner == "" || g.Runner == game.RunnerWine {
-		if hasWineConfig(g.WineConfig) || strings.TrimSpace(g.RunnerPath) != "" {
-			return wine.NewFromOptions(wineOptionsForGame(g)), nil
-		}
-		return autorunner.NewRunnerWithOptions(g.PrefixPath, nil, []gamescope.Option{
-			gamescope.WithFullscreen(false),
-			gamescope.WithResolution(1280, 720),
-		})
+		return wine.NewFromOptions(wineOptionsForGame(g)), nil
 	}
 
 	return nil, fmt.Errorf("%s runner is not supported by EngineV2 GR launcher", g.Runner)

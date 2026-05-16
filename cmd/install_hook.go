@@ -25,7 +25,6 @@ type InstallHookOptions struct {
 
 func NewInstallHookCommand() *cobra.Command {
 	var opts InstallHookOptions
-
 	cmd := &cobra.Command{
 		Use:   "install-hook [game-name]",
 		Short: "Install or refresh the text hook for an installed game",

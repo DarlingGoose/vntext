@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -117,4 +118,48 @@ func parseLooseTime(s string) (time.Time, error) {
 	}
 
 	return time.Time{}, lastErr
+}
+
+var japaneseTextRE = regexp.MustCompile(`[\p{Hiragana}\p{Katakana}\p{Han}ー]`)
+
+func FilterJapaneseOnly(l *Line) *Line {
+	if l == nil {
+		return nil
+	}
+	if !japaneseTextRE.MatchString(l.Text) {
+		return nil
+	}
+	return l
+}
+
+func FilterNonEmpty(l *Line) *Line {
+	if l == nil {
+		return nil
+	}
+
+	l.Text = strings.TrimSpace(l.Text)
+	if l.Text == "" {
+		return nil
+	}
+
+	return l
+}
+
+func FilterDedupe() func(*Line) *Line {
+	var last string
+
+	return func(l *Line) *Line {
+		if l == nil {
+			return nil
+		}
+
+		text := strings.TrimSpace(l.Text)
+		if text == "" || text == last {
+			return nil
+		}
+
+		last = text
+		l.Text = text
+		return l
+	}
 }

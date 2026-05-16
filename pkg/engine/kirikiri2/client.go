@@ -125,8 +125,7 @@ func (e *Engine) InstallTextHook(g *game.Game) error {
 	if err := e.installXP3TextHook(context.Background(), g, root); err != nil {
 		return err
 	}
-
-	if err := e.installLogExe(context.Background(), root); err != nil {
+	if err := engine.InstallLogExe(context.Background(), root); err != nil {
 		return err
 	}
 

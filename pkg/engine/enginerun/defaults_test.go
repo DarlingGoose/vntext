@@ -70,3 +70,17 @@ func TestDefaultConfigsForRunnerRejectsUnsupportedRunner(t *testing.T) {
 		t.Fatal("expected unsupported runner error")
 	}
 }
+
+func TestRunnerForGameWineDoesNotAutoPromoteToGamescope(t *testing.T) {
+	runner, err := RunnerForGame(&game.Game{
+		Runner:     game.RunnerWine,
+		PrefixPath: "/tmp/prefix",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := runner.(*wine.Runner); !ok {
+		t.Fatalf("RunnerForGame returned %T, want *wine.Runner", runner)
+	}
+}

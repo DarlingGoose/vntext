@@ -3,11 +3,13 @@ package auto
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"sync"
 
 	"github.com/DarlingGoose/vntext/pkg/app"
 	"github.com/DarlingGoose/vntext/pkg/engine"
+	"github.com/DarlingGoose/vntext/pkg/engine/artemis"
 	"github.com/DarlingGoose/vntext/pkg/engine/kirikiri2"
 	"github.com/DarlingGoose/vntext/pkg/engine/rpgmaker"
 	"github.com/DarlingGoose/vntext/pkg/engine/textreactor"
@@ -71,14 +73,24 @@ func NewEngineSelectorV2(programName string) *EngineSelectorV2 {
 	if programName == "" {
 		programName = app.DefaultProgramName
 	}
+	engines := []engine.EngineV2{
+		rpgmaker.New(),
+		kirikiri2.New(),
+	}
 
+	art, err := artemis.New()
+	if err != nil {
+		slog.Error("unable to setup artemis game engine", "err", err)
+	} else {
+		slog.Info("using artimis")
+		engines = append(engines, art)
+	}
+
+	//should always be last to be checked
+	engines = append(engines, &textreactor.Client{ProgramName: programName})
 	return &EngineSelectorV2{
 		programName: programName,
-		engines: []engine.EngineV2{
-			rpgmaker.New(),
-			kirikiri2.New(),
-			&textreactor.Client{ProgramName: programName},
-		},
+		engines:     engines,
 	}
 }
 

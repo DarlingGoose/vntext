@@ -1,11 +1,12 @@
-// pkg/engines/kirikiri2/log_exe.go
-package kirikiri2
+package engine
 
 import (
 	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +21,8 @@ var logMainGoMod []byte = []byte(
 go 1.26.2
 `)
 
-func (e *Engine) installLogExe(ctx context.Context, gameRoot string) error {
+func InstallLogExe(ctx context.Context, gameRoot string) error {
+	slog.Info("installing log.exe", "dir", gameRoot)
 	outPath := filepath.Join(gameRoot, "log.exe")
 
 	// Already exists: leave it alone.
@@ -52,7 +54,9 @@ func (e *Engine) installLogExe(ctx context.Context, gameRoot string) error {
 		ctx,
 		"go",
 		"build",
-		`-ldflags=-H=windowsgui`,
+		"-trimpath",
+		"-ldflags",
+		"-H=windowsgui -s -w",
 		"-o",
 		tmpOut,
 		".",
@@ -77,4 +81,29 @@ func (e *Engine) installLogExe(ctx context.Context, gameRoot string) error {
 	}
 
 	return nil
+}
+
+func copyFile(src, dst string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }

@@ -378,17 +378,21 @@ func (e *Engine) pluginSourceForName(name string) string {
 
 func ollamaTranslatePluginParameters() map[string]any {
 	return map[string]any{
-		"Enabled":               "true",
-		"Endpoint":              "http://127.0.0.1:11434/api/generate",
-		"Model":                 "llama3.1",
-		"Curl Path":             "curl",
-		"Source Language":       "Japanese",
-		"Target Language":       "English",
-		"Translate Dialogue":    "true",
-		"Translate Choices":     "true",
-		"Translate Window Text": "true",
-		"Show Menu Command":     "true",
-		"Menu Command Name":     "Ollama Translation",
+		"Enabled":                    "true",
+		"Endpoint":                   "http://127.0.0.1:11434/api/generate",
+		"Model":                      "llama3.1",
+		"Curl Path":                  "curl",
+		"Source Language":            "Japanese",
+		"Target Language":            "English",
+		"Max Dialogue Characters":    "140",
+		"Max Choice Characters":      "48",
+		"Max Window Text Characters": "64",
+		"Minimum Confidence":         "0.55",
+		"Translate Dialogue":         "true",
+		"Translate Choices":          "true",
+		"Translate Window Text":      "true",
+		"Show Menu Command":          "true",
+		"Menu Command Name":          "Ollama Translation",
 	}
 }
 

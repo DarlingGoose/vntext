@@ -27,6 +27,22 @@
  * @type string
  * @default English
  *
+ * @param Max Dialogue Characters
+ * @type number
+ * @default 140
+ *
+ * @param Max Choice Characters
+ * @type number
+ * @default 48
+ *
+ * @param Max Window Text Characters
+ * @type number
+ * @default 64
+ *
+ * @param Minimum Confidence
+ * @type number
+ * @default 0.55
+ *
  * @param Translate Dialogue
  * @type boolean
  * @default true
@@ -76,6 +92,11 @@
         return value === "true" || value === "1" || value === "yes" || value === "on";
     }
 
+    function numberParam(name, fallback) {
+        const value = Number(param(name, String(fallback)));
+        return Number.isFinite(value) && value > 0 ? value : fallback;
+    }
+
     const config = {
         enabled: boolParam("Enabled", true),
         endpoint: param("Endpoint", "http://127.0.0.1:11434/api/generate"),
@@ -83,6 +104,10 @@
         curlPath: param("Curl Path", "curl"),
         sourceLanguage: param("Source Language", "Japanese"),
         targetLanguage: param("Target Language", "English"),
+        maxDialogueCharacters: numberParam("Max Dialogue Characters", 140),
+        maxChoiceCharacters: numberParam("Max Choice Characters", 48),
+        maxWindowTextCharacters: numberParam("Max Window Text Characters", 64),
+        minimumConfidence: numberParam("Minimum Confidence", 0.55),
         translateDialogue: boolParam("Translate Dialogue", true),
         translateChoices: boolParam("Translate Choices", true),
         translateWindowText: boolParam("Translate Window Text", true),
@@ -149,6 +174,11 @@
         return String(value).trim() || currentValue;
     }
 
+    function numberPrompt(label, currentValue) {
+        const value = Number(stringPrompt(label, currentValue));
+        return Number.isFinite(value) && value > 0 ? Math.floor(value) : currentValue;
+    }
+
     function openConfigPrompts() {
         config.enabled = boolPrompt("Enable Ollama translation?", config.enabled);
         config.endpoint = stringPrompt("Ollama endpoint", config.endpoint);
@@ -156,6 +186,10 @@
         config.curlPath = stringPrompt("curl path", config.curlPath);
         config.sourceLanguage = stringPrompt("Source language", config.sourceLanguage);
         config.targetLanguage = stringPrompt("Target language", config.targetLanguage);
+        config.maxDialogueCharacters = numberPrompt("Max dialogue characters", config.maxDialogueCharacters);
+        config.maxChoiceCharacters = numberPrompt("Max choice characters", config.maxChoiceCharacters);
+        config.maxWindowTextCharacters = numberPrompt("Max window/menu text characters", config.maxWindowTextCharacters);
+        config.minimumConfidence = numberPrompt("Minimum confidence from 0 to 1", config.minimumConfidence);
         config.translateDialogue = boolPrompt("Translate dialogue?", config.translateDialogue);
         config.translateChoices = boolPrompt("Translate choices?", config.translateChoices);
         config.translateWindowText = boolPrompt("Translate window/menu text?", config.translateWindowText);
@@ -214,6 +248,86 @@
     function cleanTranslatedText(text) {
         let value = String(text || "").trim();
         value = value.replace(/^```(?:text)?\s*/i, "").replace(/\s*```$/i, "").trim();
+        value = extractJSONTranslation(value).translation;
+        value = stripCommonPrefixes(value);
+        value = stripWrappedQuotes(value);
+        return value.trim();
+    }
+
+    function extractJSONTranslation(text) {
+        const value = String(text || "").trim();
+        if (!value) {
+            return {translation: "", confidence: 0};
+        }
+        try {
+            const parsed = JSON.parse(value);
+            if (parsed && typeof parsed.translation === "string") {
+                return {
+                    translation: parsed.translation,
+                    confidence: normalizeConfidence(parsed.confidence)
+                };
+            }
+            if (parsed && typeof parsed.text === "string") {
+                return {
+                    translation: parsed.text,
+                    confidence: normalizeConfidence(parsed.confidence)
+                };
+            }
+        } catch (error) {
+            // Fall through to regex extraction.
+        }
+
+        const match = value.match(/"translation"\s*:\s*"((?:\\.|[^"\\])*)"/);
+        if (match) {
+            try {
+                return {
+                    translation: JSON.parse("\"" + match[1] + "\""),
+                    confidence: extractConfidence(value)
+                };
+            } catch (error) {
+                return {
+                    translation: match[1],
+                    confidence: extractConfidence(value)
+                };
+            }
+        }
+        return {translation: value, confidence: 1};
+    }
+
+    function extractConfidence(text) {
+        const match = String(text || "").match(/"confidence"\s*:\s*([0-9.]+)/);
+        return match ? normalizeConfidence(Number(match[1])) : 1;
+    }
+
+    function normalizeConfidence(value) {
+        const confidence = Number(value);
+        if (!Number.isFinite(confidence)) {
+            return 1;
+        }
+        if (confidence > 1 && confidence <= 100) {
+            return confidence / 100;
+        }
+        return Math.max(0, Math.min(1, confidence));
+    }
+
+    function stripCommonPrefixes(text) {
+        let value = String(text || "").trim();
+        value = value.replace(/^(?:translation|translated text|answer|output|result)\s*[:：]\s*/i, "");
+        value = value.replace(/^Here(?:'s| is) (?:the )?translation\s*[:：]\s*/i, "");
+        value = value.replace(/^The translation is\s*[:：]?\s*/i, "");
+        const lines = value.split(/\n+/).map(function(line) {
+            return line.trim();
+        }).filter(function(line) {
+            return line.length > 0 && !/^(?:note|explanation|literal|context)\s*[:：]/i.test(line);
+        });
+        if (lines.length > 0) {
+            value = lines[0];
+        }
+        return value.trim();
+    }
+
+    function stripWrappedQuotes(text) {
+        let value = String(text || "").trim();
         if ((value.charAt(0) === "\"" && value.charAt(value.length - 1) === "\"") ||
                 (value.charAt(0) === "'" && value.charAt(value.length - 1) === "'")) {
             value = value.slice(1, -1).trim();
@@ -221,14 +335,130 @@
         return value;
     }
 
+    function maxCharactersForContext(context) {
+        switch (context) {
+        case "dialogue":
+        case "connection test":
+            return config.maxDialogueCharacters;
+        case "choice":
+            return config.maxChoiceCharacters;
+        case "window text":
+            return config.maxWindowTextCharacters;
+        default:
+            return config.maxDialogueCharacters;
+        }
+    }
+
+    function shortenText(text, maxCharacters) {
+        let value = String(text || "").replace(/\s+/g, " ").trim();
+        if (!maxCharacters || value.length <= maxCharacters) {
+            return value;
+        }
+
+        const sentenceMatch = value.match(/^(.{1,}?[.!?])\s+/);
+        if (sentenceMatch && sentenceMatch[1].length <= maxCharacters) {
+            value = sentenceMatch[1].trim();
+        }
+        if (value.length <= maxCharacters) {
+            return value;
+        }
+
+        const clipped = value.slice(0, Math.max(1, maxCharacters - 1));
+        const lastSpace = clipped.lastIndexOf(" ");
+        if (lastSpace > Math.floor(maxCharacters * 0.6)) {
+            return clipped.slice(0, lastSpace).trim() + "...";
+        }
+        return clipped.trim() + "...";
+    }
+
+    function fitTranslatedText(text, context) {
+        return shortenText(cleanTranslatedText(text), maxCharactersForContext(context));
+    }
+
+    function fitTranslationResponse(text, original, context) {
+        const protectedOriginal = protectMarkup(original);
+        const extracted = extractJSONTranslation(String(text || "").replace(/^```(?:json|text)?\s*/i, "").replace(/\s*```$/i, "").trim());
+        if (extracted.confidence < config.minimumConfidence) {
+            return String(original || "");
+        }
+
+        let cleaned = stripCommonPrefixes(extracted.translation);
+        cleaned = stripWrappedQuotes(cleaned);
+        cleaned = restoreMarkup(cleaned, protectedOriginal.tokens);
+        if (isUncertainText(cleaned)) {
+            return String(original || "");
+        }
+        if (!hasRequiredMarkup(cleaned, protectedOriginal.tokens)) {
+            return String(original || "");
+        }
+        cleaned = shortenText(cleaned, maxCharactersForContext(context));
+        cleaned = restoreMarkup(cleaned, protectedOriginal.tokens);
+        if (!hasRequiredMarkup(cleaned, protectedOriginal.tokens)) {
+            return String(original || "");
+        }
+        if (!cleaned) {
+            return String(original || "");
+        }
+        return cleaned;
+    }
+
+    function isUncertainText(text) {
+        return /\b(?:not sure|unsure|uncertain|cannot translate|can't translate|unable to translate|need more context|ambiguous)\b/i.test(String(text || ""));
+    }
+
+    function protectMarkup(text) {
+        const tokens = [];
+        const value = String(text || "").replace(/(\\[A-Za-z]+(?:\[[^\]]*\])?|<[^>\n]+>)/g, function(match) {
+            const placeholder = "__WGL_TOKEN_" + tokens.length + "__";
+            tokens.push({
+                placeholder: placeholder,
+                value: match
+            });
+            return placeholder;
+        });
+        return {
+            text: value,
+            tokens: tokens
+        };
+    }
+
+    function restoreMarkup(text, tokens) {
+        let value = String(text || "");
+        for (let i = 0; i < tokens.length; i += 1) {
+            const token = tokens[i];
+            value = value.split(token.placeholder).join(token.value);
+        }
+        return value;
+    }
+
+    function hasRequiredMarkup(text, tokens) {
+        const value = String(text || "");
+        for (let i = 0; i < tokens.length; i += 1) {
+            if (value.indexOf(tokens[i].value) === -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     function promptFor(text, context) {
+        const maxCharacters = maxCharactersForContext(context);
+        const protectedText = protectMarkup(text);
         return [
-            "Translate this RPG Maker " + context + " from " + config.sourceLanguage + " to " + config.targetLanguage + ".",
-            "Return only the translated text.",
-            "Preserve RPG Maker escape codes such as \\N[1], \\V[1], \\C[2], \\I[3], and line breaks.",
-            "Do not add explanations.",
+            "You are a translation engine for RPG Maker UI text.",
+            "Translate from " + config.sourceLanguage + " to " + config.targetLanguage + ".",
+            "Return valid compact JSON only: {\"translation\":\"...\",\"confidence\":0.0}",
+            "The translation value must be at most " + maxCharacters + " characters.",
+            "Confidence must be between 0 and 1.",
+            "If unsure, ambiguous, idiomatic, garbled, or not confident, return the original text exactly and confidence 0.",
+            "Keep every placeholder token like __WGL_TOKEN_0__ exactly unchanged.",
+            "Those placeholder tokens are control codes, icons, colors, names, or markup and must not be translated.",
+            "Preserve line breaks.",
+            "Do not add explanations, notes, markdown, labels, alternatives, romanization, or source text.",
+            "Prefer short natural phrasing that fits a game text box.",
+            "Context: " + context,
             "",
-            String(text || "")
+            protectedText.text
         ].join("\n");
     }
 
@@ -304,8 +534,10 @@
             model: config.model,
             prompt: promptFor(text, context),
             stream: false,
+            format: "json",
             options: {
-                temperature: 0.1
+                temperature: 0,
+                num_predict: 96
             }
         };
     }
@@ -321,7 +553,7 @@
     function testConnection() {
         try {
             const parsed = requestOllama(ollamaPayload("こんにちは", "connection test"));
-            const translated = cleanTranslatedText(parsed.response || "");
+            const translated = fitTranslationResponse(parsed.response || "", "こんにちは", "connection test");
             updateStatus(true, "");
             return "Ollama translation test OK:\n" + (translated || "(empty response)");
         } catch (error) {
@@ -343,7 +575,7 @@
 
         try {
             const parsed = requestOllama(ollamaPayload(original, context));
-            const translated = cleanTranslatedText(parsed.response || "");
+            const translated = fitTranslationResponse(parsed.response || "", original, context);
             const result = translated || original;
             remember(key, result);
             updateStatus(true, "");
@@ -359,6 +591,10 @@
         if (typeof Game_Message.prototype.add === "function") {
             const originalGameMessageAdd = Game_Message.prototype.add;
             Game_Message.prototype.add = function(text) {
+                if (config.translateDialogue && typeof window !== "undefined" &&
+                        typeof window.__wglCaptureOriginalMessage === "function") {
+                    window.__wglCaptureOriginalMessage(text);
+                }
                 return originalGameMessageAdd.call(
                     this,
                     translate(text, "dialogue", config.translateDialogue)

@@ -79,6 +79,8 @@ func TestPluginSourceLogsSpeakerAndVoice(t *testing.T) {
 		"AudioManager.playSe",
 		"AudioManager.playVoice",
 		"function rememberWindowText(text, sourceWindow)",
+		"window.__wglCaptureOriginalMessage = captureOriginalMessage;",
+		"window.__wglSkipNextMessageRefresh",
 		"Window_Base.prototype.drawText",
 		"Window_Base.prototype.drawTextEx",
 	}
@@ -107,6 +109,16 @@ func TestOllamaTranslatePluginSourceHooksReplacementText(t *testing.T) {
 		"XMLHttpRequest",
 		"execFileSync(config.curlPath || \"curl\"",
 		"function testConnection()",
+		"format: \"json\"",
+		"function stripCommonPrefixes(text)",
+		"function fitTranslatedText(text, context)",
+		"function fitTranslationResponse(text, original, context)",
+		"function protectMarkup(text)",
+		"function restoreMarkup(text, tokens)",
+		"function hasRequiredMarkup(text, tokens)",
+		"Keep every placeholder token like __WGL_TOKEN_0__ exactly unchanged.",
+		"window.__wglCaptureOriginalMessage(text)",
+		"\\\"confidence\\\":0.0",
 		"Game_Message.prototype.add",
 		"Game_Message.prototype.setChoices",
 		"Window_Base.prototype.drawText",
@@ -181,6 +193,12 @@ func TestInstallOllamaTranslateHookWritesSeparatePlugin(t *testing.T) {
 			}
 			if config.Parameters["Show Menu Command"] != "true" {
 				t.Fatalf("unexpected Show Menu Command parameter: %#v", config.Parameters["Show Menu Command"])
+			}
+			if config.Parameters["Max Dialogue Characters"] != "140" {
+				t.Fatalf("unexpected Max Dialogue Characters parameter: %#v", config.Parameters["Max Dialogue Characters"])
+			}
+			if config.Parameters["Minimum Confidence"] != "0.55" {
+				t.Fatalf("unexpected Minimum Confidence parameter: %#v", config.Parameters["Minimum Confidence"])
 			}
 			return
 		}

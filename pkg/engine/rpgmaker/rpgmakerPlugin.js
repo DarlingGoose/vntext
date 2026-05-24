@@ -8,6 +8,7 @@
     window.__wglLastChoices = [];
     window.__wglLastChoiceText = "";
     window.__wglTranscriptPath = "";
+    window.__wglSkipNextMessageRefresh = false;
     let lastLoggedMessage = "";
     let lastLoggedChoicesKey = "";
     let lastLoggedWindowText = "";
@@ -172,6 +173,16 @@
         appendToTranscript(text);
     }
 
+    function captureOriginalMessage(text, messageWindow) {
+        const normalized = normalizeMessageText(text, messageWindow || currentMessageWindow());
+        if (!normalized) {
+            return;
+        }
+        setLatestMessage(normalized);
+        appendToTranscript(normalized);
+        window.__wglSkipNextMessageRefresh = true;
+    }
+
     function refreshLatestChoices(messageWindow) {
         const choices = rawChoices().map(function(choice) {
             return normalizeChoiceText(choice, messageWindow);
@@ -185,6 +196,8 @@
     function hasActiveMessageText() {
         return String(rawMessageText() || "").trim().length > 0 || rawChoices().length > 0;
     }
+
+    window.__wglCaptureOriginalMessage = captureOriginalMessage;
 
     function normalizeWindowText(text, sourceWindow) {
         let normalized = String(text || "");
@@ -365,6 +378,10 @@
         const originalGameMessageAdd = Game_Message.prototype.add;
         Game_Message.prototype.add = function(text) {
             originalGameMessageAdd.call(this, text);
+            if (window.__wglSkipNextMessageRefresh) {
+                window.__wglSkipNextMessageRefresh = false;
+                return;
+            }
             refreshLatestMessage(currentMessageWindow());
         };
 

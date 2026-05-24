@@ -86,10 +86,10 @@
     function currentSpeakerName() {
         try {
             if ($gameMessage && typeof $gameMessage.speakerName === "function") {
-                return String($gameMessage.speakerName() || "").trim();
+                return normalizeMessageText(String($gameMessage.speakerName() || "").trim());
             }
             if ($gameMessage && typeof $gameMessage._speakerName !== "undefined") {
-                return String($gameMessage._speakerName || "").trim();
+                return normalizeMessageText(String($gameMessage._speakerName || "").trim());
             }
         } catch (error) {
             console.warn("WGLClipboardText speaker lookup failed", error);
@@ -160,7 +160,7 @@
         if (normalized && messageWindow && typeof messageWindow.convertEscapeCharacters === "function") {
             normalized = messageWindow.convertEscapeCharacters(normalized);
         }
-        return normalized.replace(/\r\n/g, "\n").trim();
+        return normalized.replace(/\r\n/g, " ").trim();
     }
 
     function normalizeChoiceText(text, messageWindow) {
@@ -204,7 +204,7 @@
         if (normalized && sourceWindow && typeof sourceWindow.convertEscapeCharacters === "function") {
             normalized = sourceWindow.convertEscapeCharacters(normalized);
         }
-        return normalized.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
+        return normalized.replace(/\r\n/g, " ").replace(/\s+/g, " ").trim();
     }
 
     function rememberWindowText(text, sourceWindow) {
@@ -277,7 +277,7 @@
             }
 
             const speaker = currentSpeakerName();
-            const voice = String(currentVoiceFile || "").trim();
+            const voice = normalizeMessageText(String(currentVoiceFile || "").trim());
             const timestamp = new Date().toISOString();
             let header = "[" + timestamp + "]";
             if (speaker) {

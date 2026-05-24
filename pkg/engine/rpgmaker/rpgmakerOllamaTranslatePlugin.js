@@ -55,6 +55,14 @@
  * @type boolean
  * @default true
  *
+ * @param Display Mode
+ * @type select
+ * @option Replace text in game
+ * @value replace
+ * @option Popup / info icon
+ * @value popup
+ * @default replace
+ *
  * @param Show Menu Command
  * @type boolean
  * @default true
@@ -68,9 +76,10 @@
  *   ollama serve
  *   ollama pull llama3.1
  *
- * This plugin uses synchronous local HTTP requests so RPG Maker can replace
- * text before it is drawn. Repeated strings are cached for the current game
- * session.
+ * Display Mode controls whether translated text replaces the original text
+ * before it is drawn, or whether the original text stays in-game and the
+ * translation is shown through an on-screen info button/message-window click.
+ * Repeated strings are cached for the current game session.
  */
 (function() {
     "use strict";
@@ -111,6 +120,7 @@
         translateDialogue: boolParam("Translate Dialogue", true),
         translateChoices: boolParam("Translate Choices", true),
         translateWindowText: boolParam("Translate Window Text", true),
+        displayMode: param("Display Mode", "replace"),
         showMenuCommand: boolParam("Show Menu Command", true),
         menuCommandName: param("Menu Command Name", "Ollama Translation")
     };
@@ -121,6 +131,9 @@
     const maxCacheEntries = 1000;
     let lastStatus = "not tested";
     let lastError = "";
+    let popupButton = null;
+    let popupPanel = null;
+    let latestPopupEntries = [];
 
     function loadStoredConfig() {
         try {
@@ -179,6 +192,12 @@
         return Number.isFinite(value) && value > 0 ? Math.floor(value) : currentValue;
     }
 
+    function displayModePrompt(currentValue) {
+        const value = stringPrompt("Display mode: replace or popup", currentValue);
+        const normalized = normalizeDisplayMode(value);
+        return normalized || currentValue;
+    }
+
     function openConfigPrompts() {
         config.enabled = boolPrompt("Enable Ollama translation?", config.enabled);
         config.endpoint = stringPrompt("Ollama endpoint", config.endpoint);
@@ -193,13 +212,13 @@
         config.translateDialogue = boolPrompt("Translate dialogue?", config.translateDialogue);
         config.translateChoices = boolPrompt("Translate choices?", config.translateChoices);
         config.translateWindowText = boolPrompt("Translate window/menu text?", config.translateWindowText);
+        config.displayMode = displayModePrompt(config.displayMode);
         saveStoredConfig();
         clearCache();
-        if (typeof ConfigManager !== "undefined") {
-            ConfigManager.wglOllamaTranslateEnabled = config.enabled;
-            if (typeof ConfigManager.save === "function") {
-                ConfigManager.save();
-            }
+        refreshPopupButton();
+        syncConfigManager();
+        if (typeof ConfigManager !== "undefined" && typeof ConfigManager.save === "function") {
+            ConfigManager.save();
         }
         showStatus(testConnection());
     }
@@ -212,6 +231,65 @@
     }
 
     loadStoredConfig();
+
+    function normalizeDisplayMode(value) {
+        const normalized = String(value || "").trim().toLowerCase();
+        if (normalized === "popup" || normalized === "overlay" || normalized === "info") {
+            return "popup";
+        }
+        if (normalized === "replace" || normalized === "inplace" || normalized === "inline") {
+            return "replace";
+        }
+        return "";
+    }
+
+    function usePopupDisplay() {
+        return normalizeDisplayMode(config.displayMode) === "popup";
+    }
+
+    function syncConfigManager() {
+        if (typeof ConfigManager === "undefined") {
+            return;
+        }
+        ConfigManager.wglOllamaTranslateEnabled = config.enabled;
+        ConfigManager.wglOllamaTranslateDisplayMode = normalizeDisplayMode(config.displayMode) || "replace";
+        ConfigManager.wglOllamaTranslateDialogue = config.translateDialogue;
+        ConfigManager.wglOllamaTranslateChoices = config.translateChoices;
+        ConfigManager.wglOllamaTranslateWindowText = config.translateWindowText;
+    }
+
+    function isOllamaOptionSymbol(symbol) {
+        return symbol === "wglOllamaTranslateEnabled" ||
+            symbol === "wglOllamaTranslateDisplayMode" ||
+            symbol === "wglOllamaTranslateDialogue" ||
+            symbol === "wglOllamaTranslateChoices" ||
+            symbol === "wglOllamaTranslateWindowText";
+    }
+
+    function applyOllamaOptionValue(symbol, value) {
+        switch (symbol) {
+        case "wglOllamaTranslateEnabled":
+            config.enabled = !!value;
+            break;
+        case "wglOllamaTranslateDisplayMode":
+            config.displayMode = normalizeDisplayMode(value) || "replace";
+            break;
+        case "wglOllamaTranslateDialogue":
+            config.translateDialogue = !!value;
+            break;
+        case "wglOllamaTranslateChoices":
+            config.translateChoices = !!value;
+            break;
+        case "wglOllamaTranslateWindowText":
+            config.translateWindowText = !!value;
+            break;
+        default:
+            return;
+        }
+        syncConfigManager();
+        saveStoredConfig();
+        refreshPopupButton();
+    }
 
     function shouldSkip(text) {
         const value = String(text || "").trim();
@@ -474,6 +552,155 @@
         }
     }
 
+    function ensurePopupElements() {
+        if (typeof document === "undefined" || !document.body) {
+            return false;
+        }
+        if (popupButton && popupPanel) {
+            return true;
+        }
+
+        popupButton = document.createElement("button");
+        popupButton.type = "button";
+        popupButton.textContent = "i";
+        popupButton.title = "Show Ollama translation";
+        popupButton.setAttribute("aria-label", "Show Ollama translation");
+        popupButton.style.position = "fixed";
+        popupButton.style.right = "18px";
+        popupButton.style.bottom = "18px";
+        popupButton.style.zIndex = "999998";
+        popupButton.style.width = "34px";
+        popupButton.style.height = "34px";
+        popupButton.style.border = "1px solid rgba(255,255,255,0.7)";
+        popupButton.style.borderRadius = "17px";
+        popupButton.style.background = "rgba(18, 22, 30, 0.86)";
+        popupButton.style.color = "#ffffff";
+        popupButton.style.font = "bold 20px sans-serif";
+        popupButton.style.lineHeight = "30px";
+        popupButton.style.cursor = "pointer";
+        popupButton.style.display = "none";
+        popupButton.addEventListener("click", function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleTranslationPopup();
+        });
+
+        popupPanel = document.createElement("div");
+        popupPanel.setAttribute("role", "dialog");
+        popupPanel.style.position = "fixed";
+        popupPanel.style.right = "18px";
+        popupPanel.style.bottom = "62px";
+        popupPanel.style.zIndex = "999997";
+        popupPanel.style.maxWidth = "min(520px, calc(100vw - 36px))";
+        popupPanel.style.maxHeight = "45vh";
+        popupPanel.style.overflow = "auto";
+        popupPanel.style.display = "none";
+        popupPanel.style.boxSizing = "border-box";
+        popupPanel.style.padding = "12px 14px";
+        popupPanel.style.border = "1px solid rgba(255,255,255,0.24)";
+        popupPanel.style.borderRadius = "6px";
+        popupPanel.style.background = "rgba(18, 22, 30, 0.94)";
+        popupPanel.style.color = "#ffffff";
+        popupPanel.style.font = "16px/1.45 sans-serif";
+        popupPanel.style.whiteSpace = "pre-wrap";
+        popupPanel.style.boxShadow = "0 8px 24px rgba(0,0,0,0.35)";
+        popupPanel.addEventListener("click", function(event) {
+            event.stopPropagation();
+        });
+
+        document.body.appendChild(popupPanel);
+        document.body.appendChild(popupButton);
+        return true;
+    }
+
+    function clearNode(node) {
+        while (node.firstChild) {
+            node.removeChild(node.firstChild);
+        }
+    }
+
+    function appendPopupEntry(container, entry) {
+        const wrapper = document.createElement("div");
+        wrapper.style.marginBottom = "10px";
+
+        const label = document.createElement("div");
+        label.textContent = entry.context;
+        label.style.marginBottom = "4px";
+        label.style.color = "rgba(255,255,255,0.68)";
+        label.style.font = "12px/1.2 sans-serif";
+        label.style.textTransform = "uppercase";
+
+        const text = document.createElement("div");
+        text.textContent = entry.translation || entry.original || "";
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(text);
+        container.appendChild(wrapper);
+    }
+
+    function showTranslationPopup() {
+        if (!usePopupDisplay() || latestPopupEntries.length === 0 || !ensurePopupElements()) {
+            return;
+        }
+        clearNode(popupPanel);
+        for (let i = 0; i < latestPopupEntries.length; i += 1) {
+            appendPopupEntry(popupPanel, latestPopupEntries[i]);
+        }
+        popupPanel.style.display = "block";
+    }
+
+    function hideTranslationPopup() {
+        if (popupPanel) {
+            popupPanel.style.display = "none";
+        }
+    }
+
+    function toggleTranslationPopup() {
+        if (popupPanel && popupPanel.style.display === "block") {
+            hideTranslationPopup();
+            return;
+        }
+        showTranslationPopup();
+    }
+
+    function refreshPopupButton() {
+        if (!ensurePopupElements()) {
+            return;
+        }
+        popupButton.style.display = usePopupDisplay() && latestPopupEntries.length > 0 ? "block" : "none";
+        if (!usePopupDisplay()) {
+            hideTranslationPopup();
+        }
+    }
+
+    function rememberPopupTranslation(original, translated, context) {
+        if (!usePopupDisplay()) {
+            return;
+        }
+
+        const entry = {
+            context: String(context || "text"),
+            original: String(original || ""),
+            translation: String(translated || original || "")
+        };
+
+        if (context === "dialogue") {
+            latestPopupEntries = [entry];
+        } else if (context === "choice") {
+            latestPopupEntries = latestPopupEntries.filter(function(existing) {
+                return existing.context === "dialogue" || existing.context === "choice";
+            });
+            latestPopupEntries.push(entry);
+        } else if (latestPopupEntries.length === 0) {
+            latestPopupEntries = [entry];
+        }
+
+        if (latestPopupEntries.length > 8) {
+            latestPopupEntries = latestPopupEntries.slice(latestPopupEntries.length - 8);
+        }
+        refreshPopupButton();
+    }
+
     function requestWithCurl(payload) {
         if (typeof require !== "function") {
             throw new Error("Node require is unavailable");
@@ -587,6 +814,69 @@
         }
     }
 
+    function translateForDisplay(text, context, enabledForContext) {
+        const original = String(text || "");
+        const translated = translate(original, context, enabledForContext);
+        if (usePopupDisplay() && config.enabled && enabledForContext && !shouldSkip(original)) {
+            rememberPopupTranslation(original, translated, context);
+            return original;
+        }
+        return translated;
+    }
+
+    function currentMessageWindow() {
+        if (typeof SceneManager === "undefined" || !SceneManager._scene) {
+            return null;
+        }
+        return SceneManager._scene._messageWindow || null;
+    }
+
+    function eventCanvasPoint(event) {
+        if (typeof Graphics !== "undefined" &&
+                typeof Graphics.pageToCanvasX === "function" &&
+                typeof Graphics.pageToCanvasY === "function") {
+            return {
+                x: Graphics.pageToCanvasX(event.pageX),
+                y: Graphics.pageToCanvasY(event.pageY)
+            };
+        }
+        const canvas = typeof Graphics !== "undefined" ? Graphics._canvas : null;
+        if (canvas && typeof canvas.getBoundingClientRect === "function") {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / Math.max(1, rect.width);
+            const scaleY = canvas.height / Math.max(1, rect.height);
+            return {
+                x: (event.clientX - rect.left) * scaleX,
+                y: (event.clientY - rect.top) * scaleY
+            };
+        }
+        return {x: event.pageX || 0, y: event.pageY || 0};
+    }
+
+    function isPointInsideWindow(gameWindow, x, y) {
+        if (!gameWindow || !gameWindow.visible) {
+            return false;
+        }
+        if (typeof gameWindow.isOpen === "function" && !gameWindow.isOpen()) {
+            return false;
+        }
+        const width = Number(gameWindow.width || 0);
+        const height = Number(gameWindow.height || 0);
+        const left = Number(gameWindow.x || 0);
+        const top = Number(gameWindow.y || 0);
+        return width > 0 && height > 0 && x >= left && y >= top && x <= left + width && y <= top + height;
+    }
+
+    function maybeShowPopupForMessageClick(event) {
+        if (!usePopupDisplay() || latestPopupEntries.length === 0 || event.button > 0) {
+            return;
+        }
+        const point = eventCanvasPoint(event);
+        if (isPointInsideWindow(currentMessageWindow(), point.x, point.y)) {
+            showTranslationPopup();
+        }
+    }
+
     if (typeof Game_Message !== "undefined" && Game_Message.prototype) {
         if (typeof Game_Message.prototype.add === "function") {
             const originalGameMessageAdd = Game_Message.prototype.add;
@@ -597,7 +887,7 @@
                 }
                 return originalGameMessageAdd.call(
                     this,
-                    translate(text, "dialogue", config.translateDialogue)
+                    translateForDisplay(text, "dialogue", config.translateDialogue)
                 );
             };
         }
@@ -607,7 +897,7 @@
             Game_Message.prototype.setChoices = function(choices, defaultType, cancelType) {
                 if (Array.isArray(choices) && config.translateChoices) {
                     choices = choices.map(function(choice) {
-                        return translate(choice, "choice", true);
+                        return translateForDisplay(choice, "choice", true);
                     });
                 }
                 return originalGameMessageSetChoices.call(this, choices, defaultType, cancelType);
@@ -619,7 +909,7 @@
         if (typeof Window_Base.prototype.drawText === "function") {
             const originalWindowBaseDrawText = Window_Base.prototype.drawText;
             Window_Base.prototype.drawText = function(text, x, y, maxWidth, align) {
-                const translated = translate(text, "window text", config.translateWindowText);
+                const translated = translateForDisplay(text, "window text", config.translateWindowText);
                 return originalWindowBaseDrawText.call(this, translated, x, y, maxWidth, align);
             };
         }
@@ -627,20 +917,35 @@
         if (typeof Window_Base.prototype.drawTextEx === "function") {
             const originalWindowBaseDrawTextEx = Window_Base.prototype.drawTextEx;
             Window_Base.prototype.drawTextEx = function(text, x, y, width) {
-                const translated = translate(text, "window text", config.translateWindowText);
+                const translated = translateForDisplay(text, "window text", config.translateWindowText);
                 return originalWindowBaseDrawTextEx.call(this, translated, x, y, width);
             };
         }
     }
 
+    if (typeof TouchInput !== "undefined" && TouchInput) {
+        if (typeof TouchInput._onMouseDown === "function") {
+            const originalTouchInputOnMouseDown = TouchInput._onMouseDown;
+            TouchInput._onMouseDown = function(event) {
+                const result = originalTouchInputOnMouseDown.call(this, event);
+                maybeShowPopupForMessageClick(event);
+                return result;
+            };
+        }
+    }
+
     if (typeof ConfigManager !== "undefined") {
-        ConfigManager.wglOllamaTranslateEnabled = config.enabled;
+        syncConfigManager();
 
         if (typeof ConfigManager.makeData === "function") {
             const originalConfigManagerMakeData = ConfigManager.makeData;
             ConfigManager.makeData = function() {
                 const data = originalConfigManagerMakeData.call(this);
                 data.wglOllamaTranslateEnabled = config.enabled;
+                data.wglOllamaTranslateDisplayMode = normalizeDisplayMode(config.displayMode) || "replace";
+                data.wglOllamaTranslateDialogue = config.translateDialogue;
+                data.wglOllamaTranslateChoices = config.translateChoices;
+                data.wglOllamaTranslateWindowText = config.translateWindowText;
                 return data;
             };
         }
@@ -651,9 +956,22 @@
                 originalConfigManagerApplyData.call(this, configData);
                 if (configData && typeof configData.wglOllamaTranslateEnabled !== "undefined") {
                     config.enabled = !!configData.wglOllamaTranslateEnabled;
-                    this.wglOllamaTranslateEnabled = config.enabled;
-                    saveStoredConfig();
                 }
+                if (configData && typeof configData.wglOllamaTranslateDisplayMode !== "undefined") {
+                    config.displayMode = normalizeDisplayMode(configData.wglOllamaTranslateDisplayMode) || config.displayMode;
+                }
+                if (configData && typeof configData.wglOllamaTranslateDialogue !== "undefined") {
+                    config.translateDialogue = !!configData.wglOllamaTranslateDialogue;
+                }
+                if (configData && typeof configData.wglOllamaTranslateChoices !== "undefined") {
+                    config.translateChoices = !!configData.wglOllamaTranslateChoices;
+                }
+                if (configData && typeof configData.wglOllamaTranslateWindowText !== "undefined") {
+                    config.translateWindowText = !!configData.wglOllamaTranslateWindowText;
+                }
+                syncConfigManager();
+                saveStoredConfig();
+                refreshPopupButton();
             };
         }
     }
@@ -664,20 +982,76 @@
             Window_Options.prototype.addGeneralOptions = function() {
                 originalWindowOptionsAddGeneralOptions.call(this);
                 this.addCommand(config.menuCommandName, "wglOllamaTranslateEnabled");
+                this.addCommand("Ollama Display", "wglOllamaTranslateDisplayMode");
+                this.addCommand("Translate Dialogue", "wglOllamaTranslateDialogue");
+                this.addCommand("Translate Choices", "wglOllamaTranslateChoices");
+                this.addCommand("Translate Window Text", "wglOllamaTranslateWindowText");
             };
         }
 
         if (typeof Window_Options.prototype.setConfigValue === "function") {
             const originalWindowOptionsSetConfigValue = Window_Options.prototype.setConfigValue;
-            Window_Options.prototype.setConfigValue = function(symbol, volume) {
-                originalWindowOptionsSetConfigValue.call(this, symbol, volume);
-                if (symbol === "wglOllamaTranslateEnabled") {
-                    config.enabled = !!volume;
-                    if (typeof ConfigManager !== "undefined") {
-                        ConfigManager.wglOllamaTranslateEnabled = config.enabled;
-                    }
-                    saveStoredConfig();
+            Window_Options.prototype.setConfigValue = function(symbol, value) {
+                if (isOllamaOptionSymbol(symbol)) {
+                    applyOllamaOptionValue(symbol, value);
+                    return;
                 }
+                originalWindowOptionsSetConfigValue.call(this, symbol, value);
+            };
+        }
+
+        if (typeof Window_Options.prototype.statusText === "function") {
+            const originalWindowOptionsStatusText = Window_Options.prototype.statusText;
+            Window_Options.prototype.statusText = function(index) {
+                const symbol = this.commandSymbol(index);
+                if (symbol === "wglOllamaTranslateDisplayMode") {
+                    return usePopupDisplay() ? "Popup" : "Replace";
+                }
+                return originalWindowOptionsStatusText.call(this, index);
+            };
+        }
+
+        function changeDisplayMode(optionsWindow, mode) {
+            if (optionsWindow && typeof optionsWindow.changeValue === "function") {
+                optionsWindow.changeValue("wglOllamaTranslateDisplayMode", mode);
+            } else {
+                applyOllamaOptionValue("wglOllamaTranslateDisplayMode", mode);
+            }
+        }
+
+        if (typeof Window_Options.prototype.processOk === "function") {
+            const originalWindowOptionsProcessOk = Window_Options.prototype.processOk;
+            Window_Options.prototype.processOk = function() {
+                const symbol = this.commandSymbol(this.index());
+                if (symbol === "wglOllamaTranslateDisplayMode") {
+                    changeDisplayMode(this, usePopupDisplay() ? "replace" : "popup");
+                    return;
+                }
+                originalWindowOptionsProcessOk.call(this);
+            };
+        }
+
+        if (typeof Window_Options.prototype.cursorRight === "function") {
+            const originalWindowOptionsCursorRight = Window_Options.prototype.cursorRight;
+            Window_Options.prototype.cursorRight = function(wrap) {
+                const symbol = this.commandSymbol(this.index());
+                if (symbol === "wglOllamaTranslateDisplayMode") {
+                    changeDisplayMode(this, "popup");
+                    return;
+                }
+                originalWindowOptionsCursorRight.call(this, wrap);
+            };
+        }
+
+        if (typeof Window_Options.prototype.cursorLeft === "function") {
+            const originalWindowOptionsCursorLeft = Window_Options.prototype.cursorLeft;
+            Window_Options.prototype.cursorLeft = function(wrap) {
+                const symbol = this.commandSymbol(this.index());
+                if (symbol === "wglOllamaTranslateDisplayMode") {
+                    changeDisplayMode(this, "replace");
+                    return;
+                }
+                originalWindowOptionsCursorLeft.call(this, wrap);
             };
         }
     }
@@ -722,6 +1096,8 @@
         clearCache: clearCache,
         openConfig: openConfigPrompts,
         testConnection: testConnection,
+        showPopup: showTranslationPopup,
+        hidePopup: hideTranslationPopup,
         translate: function(text) {
             return translate(text, "manual text", true);
         }

@@ -391,6 +391,7 @@ func ollamaTranslatePluginParameters() map[string]any {
 		"Translate Dialogue":         "true",
 		"Translate Choices":          "true",
 		"Translate Window Text":      "true",
+		"Display Mode":               "replace",
 		"Show Menu Command":          "true",
 		"Menu Command Name":          "Ollama Translation",
 	}

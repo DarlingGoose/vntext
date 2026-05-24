@@ -116,6 +116,12 @@ func TestOllamaTranslatePluginSourceHooksReplacementText(t *testing.T) {
 		"function protectMarkup(text)",
 		"function restoreMarkup(text, tokens)",
 		"function hasRequiredMarkup(text, tokens)",
+		"@param Display Mode",
+		"function translateForDisplay(text, context, enabledForContext)",
+		"function showTranslationPopup()",
+		"function maybeShowPopupForMessageClick(event)",
+		"function syncConfigManager()",
+		"function applyOllamaOptionValue(symbol, value)",
 		"Keep every placeholder token like __WGL_TOKEN_0__ exactly unchanged.",
 		"window.__wglCaptureOriginalMessage(text)",
 		"\\\"confidence\\\":0.0",
@@ -123,10 +129,18 @@ func TestOllamaTranslatePluginSourceHooksReplacementText(t *testing.T) {
 		"Game_Message.prototype.setChoices",
 		"Window_Base.prototype.drawText",
 		"Window_Base.prototype.drawTextEx",
+		"TouchInput._onMouseDown",
 		"Window_Options.prototype.addGeneralOptions",
+		"this.addCommand(\"Ollama Display\", \"wglOllamaTranslateDisplayMode\")",
+		"this.addCommand(\"Translate Dialogue\", \"wglOllamaTranslateDialogue\")",
+		"Window_Options.prototype.statusText",
+		"Window_Options.prototype.processOk",
+		"Window_Options.prototype.cursorRight",
+		"Window_Options.prototype.cursorLeft",
 		"Window_MenuCommand.prototype.addOriginalCommands",
 		"Scene_Menu.prototype.commandWGLOllamaTranslate",
 		"openConfig: openConfigPrompts",
+		"showPopup: showTranslationPopup",
 		"window.__wglOllamaTranslate",
 	}
 
@@ -193,6 +207,9 @@ func TestInstallOllamaTranslateHookWritesSeparatePlugin(t *testing.T) {
 			}
 			if config.Parameters["Show Menu Command"] != "true" {
 				t.Fatalf("unexpected Show Menu Command parameter: %#v", config.Parameters["Show Menu Command"])
+			}
+			if config.Parameters["Display Mode"] != "replace" {
+				t.Fatalf("unexpected Display Mode parameter: %#v", config.Parameters["Display Mode"])
 			}
 			if config.Parameters["Max Dialogue Characters"] != "140" {
 				t.Fatalf("unexpected Max Dialogue Characters parameter: %#v", config.Parameters["Max Dialogue Characters"])

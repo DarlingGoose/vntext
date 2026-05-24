@@ -71,6 +71,14 @@
  * @type string
  * @default Ollama Translation
  *
+ * @param Toggle Shortcut
+ * @type string
+ * @default F8
+ *
+ * @param Refresh Shortcut
+ * @type string
+ * @default F9
+ *
  * @help
  * Requires Ollama to be running locally, for example:
  *   ollama serve
@@ -122,7 +130,9 @@
         translateWindowText: boolParam("Translate Window Text", true),
         displayMode: param("Display Mode", "replace"),
         showMenuCommand: boolParam("Show Menu Command", true),
-        menuCommandName: param("Menu Command Name", "Ollama Translation")
+        menuCommandName: param("Menu Command Name", "Ollama Translation"),
+        toggleShortcut: param("Toggle Shortcut", "F8"),
+        refreshShortcut: param("Refresh Shortcut", "F9")
     };
 
     const storageKey = "WGLOllamaTranslate.config";
@@ -399,7 +409,7 @@
             return line.length > 0 && !/^(?:note|explanation|literal|context)\s*[:：]/i.test(line);
         });
         if (lines.length > 0) {
-            value = lines[0];
+            value = lines.join("\n");
         }
         return value.trim();
     }
@@ -428,12 +438,12 @@
     }
 
     function shortenText(text, maxCharacters) {
-        let value = String(text || "").replace(/\s+/g, " ").trim();
+        let value = String(text || "").replace(/[ \t\r\f\v]+/g, " ").replace(/\n[ \t]+/g, "\n").trim();
         if (!maxCharacters || value.length <= maxCharacters) {
             return value;
         }
 
-        const sentenceMatch = value.match(/^(.{1,}?[.!?])\s+/);
+        const sentenceMatch = value.match(/^([\s\S]{1,}?[.!?])\s+/);
         if (sentenceMatch && sentenceMatch[1].length <= maxCharacters) {
             value = sentenceMatch[1].trim();
         }
@@ -735,6 +745,17 @@
         }
     }
 
+    function clearPopupDialogue() {
+        if (!usePopupDisplay()) {
+            return;
+        }
+        latestPopupEntries = latestPopupEntries.filter(function(entry) {
+            return entry.context !== "dialogue";
+        });
+        hideTranslationPopup();
+        refreshPopupButton();
+    }
+
     function rememberPopupText(original, context) {
         if (!usePopupDisplay()) {
             return;
@@ -748,7 +769,10 @@
         };
 
         if (context === "dialogue") {
-            latestPopupEntries = [entry];
+            latestPopupEntries = latestPopupEntries.filter(function(existing) {
+                return existing.context !== "window text";
+            });
+            latestPopupEntries.push(entry);
         } else if (context === "choice") {
             latestPopupEntries = latestPopupEntries.filter(function(existing) {
                 return existing.context === "dialogue" || existing.context === "choice";
@@ -762,6 +786,13 @@
             latestPopupEntries = latestPopupEntries.slice(latestPopupEntries.length - 8);
         }
         refreshPopupButton();
+    }
+
+    function markPopupEntriesPending() {
+        for (let i = 0; i < latestPopupEntries.length; i += 1) {
+            latestPopupEntries[i].translation = "";
+            latestPopupEntries[i].pending = true;
+        }
     }
 
     function requestWithCurl(payload) {
@@ -939,10 +970,114 @@
         }
     }
 
+    function currentScene() {
+        return typeof SceneManager !== "undefined" ? SceneManager._scene : null;
+    }
+
+    function refreshGameWindows() {
+        const scene = currentScene();
+        if (!scene) {
+            return;
+        }
+        if (scene._messageWindow && typeof scene._messageWindow.refresh === "function") {
+            scene._messageWindow.refresh();
+        }
+        if (scene._windowLayer && Array.isArray(scene._windowLayer.children)) {
+            scene._windowLayer.children.forEach(function(child) {
+                if (child && typeof child.refresh === "function") {
+                    child.refresh();
+                }
+            });
+        }
+    }
+
+    function refreshTranslations() {
+        clearCache();
+        markPopupEntriesPending();
+        if (popupPanel && popupPanel.style.display === "block") {
+            renderTranslationPopup();
+            window.setTimeout(function() {
+                if (translatePendingPopupEntries() && popupPanel && popupPanel.style.display === "block") {
+                    renderTranslationPopup();
+                    clampPopupPanelToViewport();
+                }
+            }, 0);
+        }
+        refreshGameWindows();
+    }
+
+    function toggleTranslatorVisibility() {
+        if (usePopupDisplay()) {
+            toggleTranslationPopup();
+            return;
+        }
+        config.enabled = !config.enabled;
+        syncConfigManager();
+        saveStoredConfig();
+        refreshPopupButton();
+        refreshGameWindows();
+    }
+
+    function normalizeShortcut(value) {
+        return String(value || "").trim().toLowerCase().replace(/\s+/g, "");
+    }
+
+    function eventShortcut(event) {
+        const parts = [];
+        if (event.ctrlKey) {
+            parts.push("ctrl");
+        }
+        if (event.altKey) {
+            parts.push("alt");
+        }
+        if (event.shiftKey) {
+            parts.push("shift");
+        }
+        if (event.metaKey) {
+            parts.push("meta");
+        }
+        parts.push(String(event.key || "").toLowerCase());
+        return parts.join("+");
+    }
+
+    function isEditableElement(element) {
+        if (!element) {
+            return false;
+        }
+        const tagName = String(element.tagName || "").toLowerCase();
+        return tagName === "input" || tagName === "textarea" || tagName === "select" || !!element.isContentEditable;
+    }
+
+    function onShortcutKeyDown(event) {
+        if (!event || isEditableElement(event.target)) {
+            return;
+        }
+
+        const shortcut = eventShortcut(event);
+        if (shortcut === normalizeShortcut(config.toggleShortcut)) {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleTranslatorVisibility();
+            return;
+        }
+        if (shortcut === normalizeShortcut(config.refreshShortcut)) {
+            event.preventDefault();
+            event.stopPropagation();
+            refreshTranslations();
+        }
+    }
+
+    if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("keydown", onShortcutKeyDown, true);
+    }
+
     if (typeof Game_Message !== "undefined" && Game_Message.prototype) {
         if (typeof Game_Message.prototype.add === "function") {
             const originalGameMessageAdd = Game_Message.prototype.add;
             Game_Message.prototype.add = function(text) {
+                if (config.translateDialogue && usePopupDisplay() && Array.isArray(this._texts) && this._texts.length === 0) {
+                    clearPopupDialogue();
+                }
                 if (config.translateDialogue && typeof window !== "undefined" &&
                         typeof window.__wglCaptureOriginalMessage === "function") {
                     window.__wglCaptureOriginalMessage(text);
@@ -1160,6 +1295,8 @@
         testConnection: testConnection,
         showPopup: showTranslationPopup,
         hidePopup: hideTranslationPopup,
+        toggle: toggleTranslatorVisibility,
+        refresh: refreshTranslations,
         translate: function(text) {
             return translate(text, "manual text", true);
         }

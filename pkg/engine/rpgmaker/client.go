@@ -394,6 +394,8 @@ func ollamaTranslatePluginParameters() map[string]any {
 		"Display Mode":               "replace",
 		"Show Menu Command":          "true",
 		"Menu Command Name":          "Ollama Translation",
+		"Toggle Shortcut":            "F8",
+		"Refresh Shortcut":           "F9",
 	}
 }
 

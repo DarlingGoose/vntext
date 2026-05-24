@@ -85,11 +85,12 @@
 
     function currentSpeakerName() {
         try {
+            const messageWindow = currentMessageWindow();
             if ($gameMessage && typeof $gameMessage.speakerName === "function") {
-                return normalizeMessageText(String($gameMessage.speakerName() || "").trim());
+                return normalizeMessageText(String($gameMessage.speakerName() || "").trim(), messageWindow);
             }
             if ($gameMessage && typeof $gameMessage._speakerName !== "undefined") {
-                return normalizeMessageText(String($gameMessage._speakerName || "").trim());
+                return normalizeMessageText(String($gameMessage._speakerName || "").trim(), messageWindow);
             }
         } catch (error) {
             console.warn("WGLClipboardText speaker lookup failed", error);
@@ -159,8 +160,33 @@
         let normalized = String(text || "");
         if (normalized && messageWindow && typeof messageWindow.convertEscapeCharacters === "function") {
             normalized = messageWindow.convertEscapeCharacters(normalized);
+        } else {
+            normalized = resolveBasicEscapeCharacters(normalized);
         }
         return normalized.replace(/\r\n/g, " ").trim();
+    }
+
+    function resolveBasicEscapeCharacters(text) {
+        let normalized = String(text || "");
+        for (let pass = 0; pass < 20; pass += 1) {
+            const next = normalized.replace(/\\[Vv]\[(\d+)\]/g, function(_match, variableId) {
+                try {
+                    if (typeof $gameVariables !== "undefined" &&
+                            $gameVariables &&
+                            typeof $gameVariables.value === "function") {
+                        return String($gameVariables.value(Number(variableId)) || "");
+                    }
+                } catch (error) {
+                    console.warn("WGLClipboardText variable lookup failed", error);
+                }
+                return "";
+            });
+            if (next === normalized) {
+                return next;
+            }
+            normalized = next;
+        }
+        return normalized;
     }
 
     function normalizeChoiceText(text, messageWindow) {

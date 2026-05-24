@@ -96,6 +96,19 @@ func (e *Engine) GetPlugins() []*engine.Plugin {
 	}
 }
 
+func (e *Engine) GetPluginsForGame(g *game.Game) []*engine.Plugin {
+	plugins := e.GetPlugins()
+	installed := e.installedPluginNames(g)
+	for _, plugin := range plugins {
+		if plugin == nil {
+			continue
+		}
+		plugin.Game = g
+		plugin.Installed = installed[normalizePluginName(plugin.Name)]
+	}
+	return plugins
+}
+
 func (e *Engine) InstallPlugin(plugin *engine.Plugin) error {
 	if plugin == nil {
 		return errors.New("plugin is nil")
@@ -115,6 +128,31 @@ func (e *Engine) InstallPlugin(plugin *engine.Plugin) error {
 	default:
 		return fmt.Errorf("%w: %s", engine.ErrUnsupportedPlugin, plugin.Name)
 	}
+}
+
+func (e *Engine) installedPluginNames(g *game.Game) map[string]bool {
+	out := map[string]bool{}
+	projectRoot, err := e.resolvePluginProjectRoot(g)
+	if err != nil {
+		return out
+	}
+
+	configs, _, _, err := readPluginConfigs(filepath.Join(projectRoot, "js", "plugins.js"))
+	if err == nil {
+		for _, config := range configs {
+			if strings.TrimSpace(config.Name) == "" {
+				continue
+			}
+			out[normalizePluginName(config.Name)] = true
+		}
+	}
+
+	for _, name := range []string{pluginName, ollamaTranslatePluginName} {
+		if _, err := os.Stat(filepath.Join(projectRoot, "js", "plugins", name+".js")); err == nil {
+			out[normalizePluginName(name)] = true
+		}
+	}
+	return out
 }
 
 func (e *Engine) UnInstallPlugin(plugin *engine.Plugin) error {
@@ -343,6 +381,7 @@ func ollamaTranslatePluginParameters() map[string]any {
 		"Enabled":               "true",
 		"Endpoint":              "http://127.0.0.1:11434/api/generate",
 		"Model":                 "llama3.1",
+		"Curl Path":             "curl",
 		"Source Language":       "Japanese",
 		"Target Language":       "English",
 		"Translate Dialogue":    "true",

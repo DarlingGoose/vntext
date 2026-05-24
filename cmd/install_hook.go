@@ -22,6 +22,7 @@ type InstallHookOptions struct {
 	HookFilter              []string
 	ClearHookFilter         bool
 	Plugins                 []string
+	ListPlugins             bool
 	RPGMakerOllamaTranslate bool
 	RPGMakerOllamaWriteOnly bool
 }
@@ -64,6 +65,23 @@ func NewInstallHookCommand() *cobra.Command {
 			eng, err := selectHookEngine(selected, opts.Engine)
 			if err != nil {
 				return err
+			}
+
+			if opts.ListPlugins {
+				fmt.Fprintf(cmd.OutOrStdout(), "plugins\n")
+				fmt.Fprintf(cmd.OutOrStdout(), "  engine: %s\n", eng.Name())
+				fmt.Fprintf(cmd.OutOrStdout(), "  game:   %s\n", selected.Name)
+				for _, plugin := range engine.PluginsForGame(eng, selected) {
+					if plugin == nil {
+						continue
+					}
+					status := "available"
+					if plugin.Installed {
+						status = "installed"
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "  - %s [%s]\n", plugin.Name, status)
+				}
+				return nil
 			}
 
 			if err := eng.InstallHook(cmd.Context(), selected); err != nil {
@@ -165,6 +183,12 @@ func NewInstallHookCommand() *cobra.Command {
 		"plugin",
 		nil,
 		"install an engine plugin by name; repeat for multiple plugins",
+	)
+	cmd.Flags().BoolVar(
+		&opts.ListPlugins,
+		"list-plugins",
+		false,
+		"list engine plugins for the selected game and show installed status",
 	)
 	cmd.Flags().BoolVar(
 		&opts.RPGMakerOllamaTranslate,

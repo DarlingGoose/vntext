@@ -15,6 +15,10 @@
  * @type string
  * @default llama3.1
  *
+ * @param Curl Path
+ * @type string
+ * @default curl
+ *
  * @param Source Language
  * @type string
  * @default Japanese
@@ -76,6 +80,7 @@
         enabled: boolParam("Enabled", true),
         endpoint: param("Endpoint", "http://127.0.0.1:11434/api/generate"),
         model: param("Model", "llama3.1"),
+        curlPath: param("Curl Path", "curl"),
         sourceLanguage: param("Source Language", "Japanese"),
         targetLanguage: param("Target Language", "English"),
         translateDialogue: boolParam("Translate Dialogue", true),
@@ -89,6 +94,8 @@
     const cache = {};
     const cacheKeys = [];
     const maxCacheEntries = 1000;
+    let lastStatus = "not tested";
+    let lastError = "";
 
     function loadStoredConfig() {
         try {
@@ -146,6 +153,7 @@
         config.enabled = boolPrompt("Enable Ollama translation?", config.enabled);
         config.endpoint = stringPrompt("Ollama endpoint", config.endpoint);
         config.model = stringPrompt("Ollama model", config.model);
+        config.curlPath = stringPrompt("curl path", config.curlPath);
         config.sourceLanguage = stringPrompt("Source language", config.sourceLanguage);
         config.targetLanguage = stringPrompt("Target language", config.targetLanguage);
         config.translateDialogue = boolPrompt("Translate dialogue?", config.translateDialogue);
@@ -159,6 +167,7 @@
                 ConfigManager.save();
             }
         }
+        showStatus(testConnection());
     }
 
     function clearCache() {
@@ -223,6 +232,104 @@
         ].join("\n");
     }
 
+    function showStatus(message) {
+        const text = String(message || "").trim();
+        if (!text) {
+            return;
+        }
+        if (typeof window !== "undefined" && typeof window.alert === "function") {
+            window.alert(text);
+        } else {
+            console.log("WGLOllamaTranslate:", text);
+        }
+    }
+
+    function requestWithCurl(payload) {
+        if (typeof require !== "function") {
+            throw new Error("Node require is unavailable");
+        }
+
+        const childProcess = require("child_process");
+        const response = childProcess.execFileSync(config.curlPath || "curl", [
+            "-sS",
+            "--max-time",
+            "30",
+            "-H",
+            "Content-Type: application/json",
+            "-X",
+            "POST",
+            "-d",
+            JSON.stringify(payload),
+            config.endpoint
+        ], {
+            encoding: "utf8",
+            windowsHide: true
+        });
+        return JSON.parse(response || "{}");
+    }
+
+    function requestWithXHR(payload) {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", config.endpoint, false);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send(JSON.stringify(payload));
+
+        if (xhr.status < 200 || xhr.status >= 300) {
+            throw new Error("HTTP " + xhr.status + ": " + String(xhr.responseText || "").slice(0, 300));
+        }
+
+        return JSON.parse(xhr.responseText || "{}");
+    }
+
+    function requestOllama(payload) {
+        const errors = [];
+
+        try {
+            return requestWithCurl(payload);
+        } catch (error) {
+            errors.push("curl: " + (error && error.message ? error.message : String(error)));
+        }
+
+        try {
+            return requestWithXHR(payload);
+        } catch (error) {
+            errors.push("xhr: " + (error && error.message ? error.message : String(error)));
+        }
+
+        throw new Error(errors.join("\n"));
+    }
+
+    function ollamaPayload(text, context) {
+        return {
+            model: config.model,
+            prompt: promptFor(text, context),
+            stream: false,
+            options: {
+                temperature: 0.1
+            }
+        };
+    }
+
+    function updateStatus(ok, message) {
+        lastStatus = ok ? "ok" : "error";
+        lastError = ok ? "" : String(message || "");
+        if (!ok) {
+            console.warn("WGLOllamaTranslate request failed:", lastError);
+        }
+    }
+
+    function testConnection() {
+        try {
+            const parsed = requestOllama(ollamaPayload("こんにちは", "connection test"));
+            const translated = cleanTranslatedText(parsed.response || "");
+            updateStatus(true, "");
+            return "Ollama translation test OK:\n" + (translated || "(empty response)");
+        } catch (error) {
+            updateStatus(false, error && error.message ? error.message : String(error));
+            return "Ollama translation test failed:\n" + lastError;
+        }
+    }
+
     function translate(text, context, enabledForContext) {
         const original = String(text || "");
         if (!config.enabled || !enabledForContext || shouldSkip(original)) {
@@ -235,31 +342,14 @@
         }
 
         try {
-            const xhr = new XMLHttpRequest();
-            xhr.open("POST", config.endpoint, false);
-            xhr.setRequestHeader("Content-Type", "application/json");
-            xhr.send(JSON.stringify({
-                model: config.model,
-                prompt: promptFor(original, context),
-                stream: false,
-                options: {
-                    temperature: 0.1
-                }
-            }));
-
-            if (xhr.status < 200 || xhr.status >= 300) {
-                console.warn("WGLOllamaTranslate request failed:", xhr.status, xhr.responseText);
-                remember(key, original);
-                return original;
-            }
-
-            const parsed = JSON.parse(xhr.responseText || "{}");
+            const parsed = requestOllama(ollamaPayload(original, context));
             const translated = cleanTranslatedText(parsed.response || "");
             const result = translated || original;
             remember(key, result);
+            updateStatus(true, "");
             return result;
         } catch (error) {
-            console.warn("WGLOllamaTranslate request failed:", error);
+            updateStatus(false, error && error.message ? error.message : String(error));
             remember(key, original);
             return original;
         }
@@ -390,8 +480,12 @@
     window.__wglOllamaTranslate = {
         config: config,
         cache: cache,
+        status: function() {
+            return {status: lastStatus, error: lastError};
+        },
         clearCache: clearCache,
         openConfig: openConfigPrompts,
+        testConnection: testConnection,
         translate: function(text) {
             return translate(text, "manual text", true);
         }

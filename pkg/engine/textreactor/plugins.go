@@ -4,9 +4,14 @@ import (
 	"fmt"
 
 	"github.com/DarlingGoose/vntext/pkg/engine"
+	"github.com/DarlingGoose/vntext/pkg/game"
 )
 
 func (c *Client) GetPlugins() []*engine.Plugin {
+	return []*engine.Plugin{}
+}
+
+func (c *Client) GetPluginsForGame(g *game.Game) []*engine.Plugin {
 	return []*engine.Plugin{}
 }
 

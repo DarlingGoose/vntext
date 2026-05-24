@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/DarlingGoose/vntext/pkg/engine"
+	"github.com/DarlingGoose/vntext/pkg/game"
 )
 
 const textLoggerPluginName = "kirikiri2-text-logger"
@@ -18,6 +21,18 @@ func (e *Engine) GetPlugins() []*engine.Plugin {
 			Data: e.GetDefaultPlugin(),
 		},
 	}
+}
+
+func (e *Engine) GetPluginsForGame(g *game.Game) []*engine.Plugin {
+	plugins := e.GetPlugins()
+	for _, plugin := range plugins {
+		if plugin == nil {
+			continue
+		}
+		plugin.Game = g
+		plugin.Installed = kirikiriTextLoggerInstalled(g)
+	}
+	return plugins
 }
 
 func (e *Engine) InstallPlugin(plugin *engine.Plugin) error {
@@ -33,6 +48,28 @@ func (e *Engine) InstallPlugin(plugin *engine.Plugin) error {
 		}
 	}
 	return e.InstallHook(context.Background(), plugin.Game)
+}
+
+func kirikiriTextLoggerInstalled(g *game.Game) bool {
+	if g == nil {
+		return false
+	}
+	root := strings.TrimSpace(g.WorkingDir)
+	if root == "" {
+		root = filepath.Dir(g.Executable)
+	}
+	if root == "." || strings.TrimSpace(root) == "" {
+		return false
+	}
+	for _, candidate := range []string{
+		filepath.Join(root, "text_logger.tjs"),
+		filepath.Join(root, "log.exe"),
+	} {
+		if _, err := os.Stat(candidate); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) UnInstallPlugin(plugin *engine.Plugin) error {

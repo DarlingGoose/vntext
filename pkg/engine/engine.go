@@ -58,6 +58,26 @@ type Plugin struct {
 	Game      *game.Game `json:"-"`
 }
 
+type GamePluginLister interface {
+	GetPluginsForGame(game *game.Game) []*Plugin
+}
+
+func PluginsForGame(eng EngineV2, g *game.Game) []*Plugin {
+	if eng == nil {
+		return nil
+	}
+	if lister, ok := eng.(GamePluginLister); ok {
+		return lister.GetPluginsForGame(g)
+	}
+	plugins := eng.GetPlugins()
+	for _, plugin := range plugins {
+		if plugin != nil {
+			plugin.Game = g
+		}
+	}
+	return plugins
+}
+
 type FollowGameOptions struct {
 	MaxLines int
 	History  bool

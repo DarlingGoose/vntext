@@ -105,7 +105,8 @@ func TestOllamaTranslatePluginSourceHooksReplacementText(t *testing.T) {
 	required := []string{
 		"const PLUGIN_NAME = \"WGLOllamaTranslate\";",
 		"XMLHttpRequest",
-		"xhr.open(\"POST\", config.endpoint, false)",
+		"execFileSync(config.curlPath || \"curl\"",
+		"function testConnection()",
 		"Game_Message.prototype.add",
 		"Game_Message.prototype.setChoices",
 		"Window_Base.prototype.drawText",
@@ -175,6 +176,9 @@ func TestInstallOllamaTranslateHookWritesSeparatePlugin(t *testing.T) {
 			if config.Parameters["Endpoint"] != "http://127.0.0.1:11434/api/generate" {
 				t.Fatalf("unexpected Endpoint parameter: %#v", config.Parameters["Endpoint"])
 			}
+			if config.Parameters["Curl Path"] != "curl" {
+				t.Fatalf("unexpected Curl Path parameter: %#v", config.Parameters["Curl Path"])
+			}
 			if config.Parameters["Show Menu Command"] != "true" {
 				t.Fatalf("unexpected Show Menu Command parameter: %#v", config.Parameters["Show Menu Command"])
 			}
@@ -213,6 +217,39 @@ func TestInstallPluginInstallsOllamaTranslateAlias(t *testing.T) {
 		}
 	}
 	t.Fatalf("WGLOllamaTranslate was not added to plugins.js")
+}
+
+func TestGetPluginsForGameMarksInstalledRPGMakerPlugins(t *testing.T) {
+	root := makeRPGMakerProject(t)
+	eng := New()
+	g := &game.Game{
+		GamePath:   root,
+		WorkingDir: root,
+		Executable: filepath.Join(root, "Game.exe"),
+	}
+
+	plugins := eng.GetPluginsForGame(g)
+	for _, plugin := range plugins {
+		if plugin.Installed {
+			t.Fatalf("plugin %s unexpectedly installed before install", plugin.Name)
+		}
+	}
+
+	if err := eng.InstallPlugin(&engine.Plugin{Name: "rpgmaker-ollama-translate", Game: g}); err != nil {
+		t.Fatalf("InstallPlugin() error = %v", err)
+	}
+
+	plugins = eng.GetPluginsForGame(g)
+	installed := map[string]bool{}
+	for _, plugin := range plugins {
+		installed[plugin.Name] = plugin.Installed
+	}
+	if !installed["WGLOllamaTranslate"] {
+		t.Fatalf("expected WGLOllamaTranslate to be marked installed")
+	}
+	if installed["WGLClipboardText"] {
+		t.Fatalf("did not expect WGLClipboardText to be marked installed")
+	}
 }
 
 //func TestInstallGameDerivesNameFromExeWhenProjectRootIsWWW(t *testing.T) {

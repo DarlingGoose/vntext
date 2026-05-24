@@ -589,9 +589,11 @@
         popupPanel.setAttribute("role", "dialog");
         popupPanel.style.position = "fixed";
         popupPanel.style.right = "18px";
+        popupPanel.style.left = "auto";
         popupPanel.style.bottom = "62px";
         popupPanel.style.zIndex = "999997";
-        popupPanel.style.maxWidth = "min(520px, calc(100vw - 36px))";
+        popupPanel.style.width = "calc(100vw - 36px)";
+        popupPanel.style.maxWidth = "520px";
         popupPanel.style.maxHeight = "45vh";
         popupPanel.style.overflow = "auto";
         popupPanel.style.display = "none";
@@ -603,6 +605,7 @@
         popupPanel.style.color = "#ffffff";
         popupPanel.style.font = "16px/1.45 sans-serif";
         popupPanel.style.whiteSpace = "pre-wrap";
+        popupPanel.style.overflowWrap = "break-word";
         popupPanel.style.boxShadow = "0 8px 24px rgba(0,0,0,0.35)";
         popupPanel.addEventListener("click", function(event) {
             event.stopPropagation();
@@ -631,22 +634,81 @@
         label.style.textTransform = "uppercase";
 
         const text = document.createElement("div");
-        text.textContent = entry.translation || entry.original || "";
+        text.textContent = entry.pending ? "Translating..." : (entry.translation || entry.original || "");
 
         wrapper.appendChild(label);
         wrapper.appendChild(text);
         container.appendChild(wrapper);
     }
 
-    function showTranslationPopup() {
-        if (!usePopupDisplay() || latestPopupEntries.length === 0 || !ensurePopupElements()) {
+    function renderTranslationPopup() {
+        if (!popupPanel) {
             return;
         }
         clearNode(popupPanel);
         for (let i = 0; i < latestPopupEntries.length; i += 1) {
             appendPopupEntry(popupPanel, latestPopupEntries[i]);
         }
+    }
+
+    function clampPopupPanelToViewport() {
+        if (!popupPanel || typeof popupPanel.getBoundingClientRect !== "function") {
+            return;
+        }
+
+        const margin = 18;
+        const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+        if (!viewportWidth) {
+            return;
+        }
+
+        const rect = popupPanel.getBoundingClientRect();
+        if (rect.right > viewportWidth - margin) {
+            popupPanel.style.left = "auto";
+            popupPanel.style.right = margin + "px";
+        } else if (rect.left < margin) {
+            popupPanel.style.left = margin + "px";
+            popupPanel.style.right = margin + "px";
+            popupPanel.style.width = "auto";
+        }
+    }
+
+    function hasPendingPopupTranslations() {
+        return latestPopupEntries.some(function(entry) {
+            return !!entry.pending;
+        });
+    }
+
+    function translatePendingPopupEntries() {
+        let changed = false;
+        for (let i = 0; i < latestPopupEntries.length; i += 1) {
+            const entry = latestPopupEntries[i];
+            if (!entry.pending) {
+                continue;
+            }
+            entry.translation = translate(entry.original, entry.context, true);
+            entry.pending = false;
+            changed = true;
+        }
+        return changed;
+    }
+
+    function showTranslationPopup() {
+        if (!usePopupDisplay() || latestPopupEntries.length === 0 || !ensurePopupElements()) {
+            return;
+        }
+        renderTranslationPopup();
         popupPanel.style.display = "block";
+        clampPopupPanelToViewport();
+
+        if (hasPendingPopupTranslations()) {
+            window.setTimeout(function() {
+                if (translatePendingPopupEntries() && popupPanel && popupPanel.style.display === "block") {
+                    renderTranslationPopup();
+                    clampPopupPanelToViewport();
+                }
+            }, 0);
+        }
     }
 
     function hideTranslationPopup() {
@@ -673,7 +735,7 @@
         }
     }
 
-    function rememberPopupTranslation(original, translated, context) {
+    function rememberPopupText(original, context) {
         if (!usePopupDisplay()) {
             return;
         }
@@ -681,7 +743,8 @@
         const entry = {
             context: String(context || "text"),
             original: String(original || ""),
-            translation: String(translated || original || "")
+            translation: "",
+            pending: true
         };
 
         if (context === "dialogue") {
@@ -816,12 +879,11 @@
 
     function translateForDisplay(text, context, enabledForContext) {
         const original = String(text || "");
-        const translated = translate(original, context, enabledForContext);
         if (usePopupDisplay() && config.enabled && enabledForContext && !shouldSkip(original)) {
-            rememberPopupTranslation(original, translated, context);
+            rememberPopupText(original, context);
             return original;
         }
-        return translated;
+        return translate(original, context, enabledForContext);
     }
 
     function currentMessageWindow() {

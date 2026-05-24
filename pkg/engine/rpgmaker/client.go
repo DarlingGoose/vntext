@@ -19,11 +19,16 @@ import (
 const (
 	engineName = "rpgmaker"
 
-	pluginName = "WGLClipboardText"
+	pluginName                = "WGLClipboardText"
+	ollamaTranslatePluginName = "WGLOllamaTranslate"
 )
 
 //go:embed rpgmakerPlugin.js
 var pluginSource string
+
+//go:embed rpgmakerOllamaTranslatePlugin.js
+var ollamaTranslatePluginSource string
+
 var _ engine.Engine = &Engine{}
 
 type Engine struct {
@@ -72,6 +77,70 @@ func (e *Engine) SetCustomPlugin(data string) error {
 	}
 	e.CurrentPlugin = data
 	return nil
+}
+
+func (e *Engine) GetOllamaTranslatePlugin() string {
+	return ollamaTranslatePluginSource
+}
+
+func (e *Engine) GetPlugins() []*engine.Plugin {
+	return []*engine.Plugin{
+		{
+			Name: pluginName,
+			Data: e.GetDefaultPlugin(),
+		},
+		{
+			Name: ollamaTranslatePluginName,
+			Data: e.GetOllamaTranslatePlugin(),
+		},
+	}
+}
+
+func (e *Engine) InstallPlugin(plugin *engine.Plugin) error {
+	if plugin == nil {
+		return errors.New("plugin is nil")
+	}
+	switch normalizePluginName(plugin.Name) {
+	case normalizePluginName(pluginName):
+		return e.installRPGMakerPlugin(plugin.Game, pluginName, plugin.Data, true, map[string]any{}, "WGL clipboard/dialogue text hook")
+	case normalizePluginName(ollamaTranslatePluginName), "rpgmaker-ollama-translate", "rpgmaker-ollama-trasklate":
+		return e.installRPGMakerPlugin(
+			plugin.Game,
+			ollamaTranslatePluginName,
+			firstNonEmpty(plugin.Data, e.GetOllamaTranslatePlugin()),
+			true,
+			ollamaTranslatePluginParameters(),
+			"Local Ollama RPG Maker text translator",
+		)
+	default:
+		return fmt.Errorf("%w: %s", engine.ErrUnsupportedPlugin, plugin.Name)
+	}
+}
+
+func (e *Engine) UnInstallPlugin(plugin *engine.Plugin) error {
+	if plugin == nil {
+		return errors.New("plugin is nil")
+	}
+
+	name := plugin.Name
+	switch normalizePluginName(plugin.Name) {
+	case normalizePluginName(pluginName):
+		name = pluginName
+	case normalizePluginName(ollamaTranslatePluginName), "rpgmaker-ollama-translate", "rpgmaker-ollama-trasklate":
+		name = ollamaTranslatePluginName
+	default:
+		return fmt.Errorf("%w: %s", engine.ErrUnsupportedPlugin, plugin.Name)
+	}
+
+	projectRoot, err := e.resolvePluginProjectRoot(plugin.Game)
+	if err != nil {
+		return err
+	}
+	return ensurePluginConfigured(filepath.Join(projectRoot, "js", "plugins.js"), pluginConfig{
+		Name:       name,
+		Status:     false,
+		Parameters: map[string]any{},
+	})
 }
 
 // New returns an RPG Maker engine installer with sane defaults.
@@ -190,20 +259,7 @@ func (e *Engine) InstallTextHook(g *game.Game) error {
 		}
 	}
 
-	jsDir := filepath.Join(projectRoot, "js")
-	pluginsDir := filepath.Join(jsDir, "plugins")
-	pluginsConfigPath := filepath.Join(jsDir, "plugins.js")
-	pluginPath := filepath.Join(pluginsDir, pluginName+".js")
-
-	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
-		return fmt.Errorf("create plugins dir: %w", err)
-	}
-
-	if err := os.WriteFile(pluginPath, []byte(e.GetDefaultPlugin()), 0o644); err != nil {
-		return fmt.Errorf("write RPG Maker plugin: %w", err)
-	}
-
-	if err := ensurePluginEnabled(pluginsConfigPath, pluginName); err != nil {
+	if err := e.installRPGMakerPlugin(g, pluginName, e.GetDefaultPlugin(), true, map[string]any{}, "WGL clipboard/dialogue text hook"); err != nil {
 		return err
 	}
 
@@ -211,6 +267,106 @@ func (e *Engine) InstallTextHook(g *game.Game) error {
 	g.TextHookLogFile = filepath.Join(projectRoot, "wgl-dialogue.log")
 
 	return nil
+}
+
+func (e *Engine) InstallOllamaTranslateHook(g *game.Game, enabled bool) error {
+	return e.installRPGMakerPlugin(
+		g,
+		ollamaTranslatePluginName,
+		e.GetOllamaTranslatePlugin(),
+		enabled,
+		ollamaTranslatePluginParameters(),
+		"Local Ollama RPG Maker text translator",
+	)
+}
+
+func (e *Engine) installRPGMakerPlugin(g *game.Game, name, data string, enabled bool, parameters map[string]any, description string) error {
+	projectRoot, err := e.resolvePluginProjectRoot(g)
+	if err != nil {
+		return err
+	}
+
+	jsDir := filepath.Join(projectRoot, "js")
+	pluginsDir := filepath.Join(jsDir, "plugins")
+	pluginPath := filepath.Join(pluginsDir, name+".js")
+
+	if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+		return fmt.Errorf("create plugins dir: %w", err)
+	}
+
+	if err := os.WriteFile(pluginPath, []byte(firstNonEmpty(data, e.pluginSourceForName(name))), 0o644); err != nil {
+		return fmt.Errorf("write RPG Maker plugin: %w", err)
+	}
+
+	return ensurePluginConfigured(filepath.Join(jsDir, "plugins.js"), pluginConfig{
+		Name:        name,
+		Status:      enabled,
+		Description: description,
+		Parameters:  parameters,
+	})
+}
+
+func (e *Engine) resolvePluginProjectRoot(g *game.Game) (string, error) {
+	if g == nil {
+		return "", errors.New("game is nil")
+	}
+
+	projectRoot, _, err := resolveProjectRoot(g.GamePath)
+	if err == nil {
+		return projectRoot, nil
+	}
+	for _, candidate := range []string{g.WorkingDir, filepath.Dir(g.Executable)} {
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		projectRoot, _, err = resolveProjectRoot(candidate)
+		if err == nil {
+			return projectRoot, nil
+		}
+	}
+	return "", err
+}
+
+func (e *Engine) pluginSourceForName(name string) string {
+	switch normalizePluginName(name) {
+	case normalizePluginName(pluginName):
+		return e.GetDefaultPlugin()
+	case normalizePluginName(ollamaTranslatePluginName):
+		return e.GetOllamaTranslatePlugin()
+	default:
+		return ""
+	}
+}
+
+func ollamaTranslatePluginParameters() map[string]any {
+	return map[string]any{
+		"Enabled":               "true",
+		"Endpoint":              "http://127.0.0.1:11434/api/generate",
+		"Model":                 "llama3.1",
+		"Source Language":       "Japanese",
+		"Target Language":       "English",
+		"Translate Dialogue":    "true",
+		"Translate Choices":     "true",
+		"Translate Window Text": "true",
+		"Show Menu Command":     "true",
+		"Menu Command Name":     "Ollama Translation",
+	}
+}
+
+func normalizePluginName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.ReplaceAll(name, "_", "-")
+	name = strings.ReplaceAll(name, " ", "-")
+	return name
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (e *Engine) IsEngine(dir string) bool {

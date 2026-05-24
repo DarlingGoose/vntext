@@ -10,7 +10,10 @@
     window.__wglTranscriptPath = "";
     let lastLoggedMessage = "";
     let lastLoggedChoicesKey = "";
+    let lastLoggedWindowText = "";
     let currentVoiceFile = "";
+    let windowTextBuffer = [];
+    let windowTextFlushTimer = null;
 
     function setLatestMessage(text) {
         if (typeof text !== "string") {
@@ -179,6 +182,63 @@
         appendChoicesToTranscript(choices);
     }
 
+    function hasActiveMessageText() {
+        return String(rawMessageText() || "").trim().length > 0 || rawChoices().length > 0;
+    }
+
+    function normalizeWindowText(text, sourceWindow) {
+        let normalized = String(text || "");
+        if (normalized && sourceWindow && typeof sourceWindow.convertEscapeCharacters === "function") {
+            normalized = sourceWindow.convertEscapeCharacters(normalized);
+        }
+        return normalized.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim();
+    }
+
+    function rememberWindowText(text, sourceWindow) {
+        const normalized = normalizeWindowText(text, sourceWindow);
+        if (!normalized || hasActiveMessageText()) {
+            return;
+        }
+
+        windowTextBuffer.push(normalized);
+        if (windowTextFlushTimer !== null) {
+            return;
+        }
+
+        windowTextFlushTimer = setTimeout(function() {
+            windowTextFlushTimer = null;
+            flushWindowTextBuffer();
+        }, 150);
+    }
+
+    function flushWindowTextBuffer() {
+        if (windowTextBuffer.length === 0 || hasActiveMessageText()) {
+            windowTextBuffer = [];
+            return;
+        }
+
+        const seen = {};
+        const lines = [];
+        for (let i = 0; i < windowTextBuffer.length; i += 1) {
+            const line = String(windowTextBuffer[i] || "").trim();
+            if (!line || seen[line]) {
+                continue;
+            }
+            seen[line] = true;
+            lines.push(line);
+        }
+        windowTextBuffer = [];
+
+        const text = lines.join("\n").trim();
+        if (!text || text === lastLoggedWindowText) {
+            return;
+        }
+
+        setLatestMessage(text);
+        appendToTranscript(text);
+        lastLoggedWindowText = text;
+    }
+
     function currentMessageWindow() {
         if (typeof SceneManager === "undefined" || !SceneManager || !SceneManager._scene) {
             return null;
@@ -294,41 +354,45 @@
         return Promise.resolve(false);
     }
 
-    const originalGameMessageClear = Game_Message.prototype.clear;
-    Game_Message.prototype.clear = function() {
-        originalGameMessageClear.call(this);
-        setLatestMessage("");
-        setLatestChoices([]);
-    };
+    if (typeof Game_Message !== "undefined" && Game_Message.prototype) {
+        const originalGameMessageClear = Game_Message.prototype.clear;
+        Game_Message.prototype.clear = function() {
+            originalGameMessageClear.call(this);
+            setLatestMessage("");
+            setLatestChoices([]);
+        };
 
-    const originalGameMessageAdd = Game_Message.prototype.add;
-    Game_Message.prototype.add = function(text) {
-        originalGameMessageAdd.call(this, text);
-        refreshLatestMessage(currentMessageWindow());
-    };
-
-    if (typeof Game_Message.prototype.setSpeakerName === "function") {
-        const originalGameMessageSetSpeakerName = Game_Message.prototype.setSpeakerName;
-        Game_Message.prototype.setSpeakerName = function(speakerName) {
-            originalGameMessageSetSpeakerName.call(this, speakerName);
+        const originalGameMessageAdd = Game_Message.prototype.add;
+        Game_Message.prototype.add = function(text) {
+            originalGameMessageAdd.call(this, text);
             refreshLatestMessage(currentMessageWindow());
         };
+
+        if (typeof Game_Message.prototype.setSpeakerName === "function") {
+            const originalGameMessageSetSpeakerName = Game_Message.prototype.setSpeakerName;
+            Game_Message.prototype.setSpeakerName = function(speakerName) {
+                originalGameMessageSetSpeakerName.call(this, speakerName);
+                refreshLatestMessage(currentMessageWindow());
+            };
+        }
+
+        if (typeof Game_Message.prototype.setChoices === "function") {
+            const originalGameMessageSetChoices = Game_Message.prototype.setChoices;
+            Game_Message.prototype.setChoices = function(choices, defaultType, cancelType) {
+                originalGameMessageSetChoices.call(this, choices, defaultType, cancelType);
+                refreshLatestChoices(currentMessageWindow());
+            };
+        }
     }
 
-    if (typeof Game_Message.prototype.setChoices === "function") {
-        const originalGameMessageSetChoices = Game_Message.prototype.setChoices;
-        Game_Message.prototype.setChoices = function(choices, defaultType, cancelType) {
-            originalGameMessageSetChoices.call(this, choices, defaultType, cancelType);
-            refreshLatestChoices(currentMessageWindow());
+    if (typeof Window_Message !== "undefined" && Window_Message.prototype && typeof Window_Message.prototype.startMessage === "function") {
+        const originalWindowMessageStartMessage = Window_Message.prototype.startMessage;
+        Window_Message.prototype.startMessage = function() {
+            originalWindowMessageStartMessage.call(this);
+            refreshLatestMessage(this);
+            refreshLatestChoices(this);
         };
     }
-
-    const originalWindowMessageStartMessage = Window_Message.prototype.startMessage;
-    Window_Message.prototype.startMessage = function() {
-        originalWindowMessageStartMessage.call(this);
-        refreshLatestMessage(this);
-        refreshLatestChoices(this);
-    };
 
     if (typeof Window_ChoiceList !== "undefined" && Window_ChoiceList.prototype) {
         if (typeof Window_ChoiceList.prototype.start === "function") {
@@ -344,6 +408,24 @@
             Window_ChoiceList.prototype.refresh = function() {
                 originalWindowChoiceListRefresh.call(this);
                 refreshLatestChoices(currentMessageWindow() || this);
+            };
+        }
+    }
+
+    if (typeof Window_Base !== "undefined" && Window_Base.prototype) {
+        if (typeof Window_Base.prototype.drawText === "function") {
+            const originalWindowBaseDrawText = Window_Base.prototype.drawText;
+            Window_Base.prototype.drawText = function(text, x, y, maxWidth, align) {
+                rememberWindowText(text, this);
+                return originalWindowBaseDrawText.call(this, text, x, y, maxWidth, align);
+            };
+        }
+
+        if (typeof Window_Base.prototype.drawTextEx === "function") {
+            const originalWindowBaseDrawTextEx = Window_Base.prototype.drawTextEx;
+            Window_Base.prototype.drawTextEx = function(text, x, y, width) {
+                rememberWindowText(text, this);
+                return originalWindowBaseDrawTextEx.call(this, text, x, y, width);
             };
         }
     }

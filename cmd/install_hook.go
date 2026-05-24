@@ -16,11 +16,14 @@ import (
 )
 
 type InstallHookOptions struct {
-	ConfigDir       string
-	Engine          string
-	NoSave          bool
-	HookFilter      []string
-	ClearHookFilter bool
+	ConfigDir               string
+	Engine                  string
+	NoSave                  bool
+	HookFilter              []string
+	ClearHookFilter         bool
+	Plugins                 []string
+	RPGMakerOllamaTranslate bool
+	RPGMakerOllamaWriteOnly bool
 }
 
 func NewInstallHookCommand() *cobra.Command {
@@ -67,6 +70,28 @@ func NewInstallHookCommand() *cobra.Command {
 				return fmt.Errorf("install %s text hook: %w", eng.Name(), err)
 			}
 
+			plugins := append([]string{}, opts.Plugins...)
+			if opts.RPGMakerOllamaTranslate {
+				plugins = append(plugins, "rpgmaker-ollama-translate")
+			}
+			for _, pluginName := range normalizeHookFilters(plugins) {
+				if err := eng.InstallPlugin(&engine.Plugin{Name: pluginName, Game: selected}); err != nil {
+					return fmt.Errorf("install plugin %s: %w", pluginName, err)
+				}
+			}
+
+			if opts.RPGMakerOllamaWriteOnly {
+				installer, ok := eng.(interface {
+					InstallOllamaTranslateHook(*game.Game, bool) error
+				})
+				if !ok {
+					return fmt.Errorf("%s does not support RPG Maker Ollama translation hooks", eng.Name())
+				}
+				if err := installer.InstallOllamaTranslateHook(selected, false); err != nil {
+					return fmt.Errorf("install RPG Maker Ollama translation hook: %w", err)
+				}
+			}
+
 			if strings.TrimSpace(selected.EngineName) == "" {
 				selected.EngineName = eng.Name()
 			}
@@ -91,6 +116,14 @@ func NewInstallHookCommand() *cobra.Command {
 			}
 			if len(selected.TextHookFilter) > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "  filter: %s\n", strings.Join(selected.TextHookFilter, ", "))
+			}
+			if len(plugins) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "  plugins: %s\n", strings.Join(normalizeHookFilters(plugins), ", "))
+			}
+			if opts.RPGMakerOllamaTranslate {
+				fmt.Fprintf(cmd.OutOrStdout(), "  ollama: enabled\n")
+			} else if opts.RPGMakerOllamaWriteOnly {
+				fmt.Fprintf(cmd.OutOrStdout(), "  ollama: written disabled\n")
 			}
 
 			return nil
@@ -126,6 +159,24 @@ func NewInstallHookCommand() *cobra.Command {
 		"clear-hook-filter",
 		false,
 		"clear default Textractor hook group filters",
+	)
+	cmd.Flags().StringArrayVar(
+		&opts.Plugins,
+		"plugin",
+		nil,
+		"install an engine plugin by name; repeat for multiple plugins",
+	)
+	cmd.Flags().BoolVar(
+		&opts.RPGMakerOllamaTranslate,
+		"rpgmaker-ollama-translate",
+		false,
+		"install and enable the RPG Maker local Ollama translation plugin",
+	)
+	cmd.Flags().BoolVar(
+		&opts.RPGMakerOllamaWriteOnly,
+		"rpgmaker-ollama-write-only",
+		false,
+		"write the RPG Maker local Ollama translation plugin but leave it disabled",
 	)
 
 	return cmd

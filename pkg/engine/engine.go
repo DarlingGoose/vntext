@@ -12,6 +12,7 @@ import (
 )
 
 var ErrNoEngineFound = errors.New("no supported engine found")
+var ErrUnsupportedPlugin = errors.New("unsupported plugin")
 
 type Engine interface {
 	Name() string
@@ -22,14 +23,14 @@ type Engine interface {
 	SetCustomPlugin(data string) error
 	GetDefaultPlugin() string
 	GetFile(g *game.Game, file string) (*EngineFileInfo, error)
-	//todo
+	// todo
 }
 
 type EngineV2 interface {
 	Name() string
 
 	IsEngine(dir string) bool
-	//AddGame Will only work on games that have already been installed/ not the launcher
+	// AddGame Will only work on games that have already been installed/ not the launcher
 	// WIll need to set game fields based off the gr runner so we know what to run when we call run game
 	AddGame(ctx context.Context, filepath string) (*game.Game, error)
 	InstallHook(ctx context.Context, game *game.Game) error
@@ -44,6 +45,17 @@ type EngineV2 interface {
 	Shutdown() error
 	ManagedGames() []*game.Game
 	GetTextractor(game *game.Game) *textractor.Client // or nil for other engines
+
+	GetPlugins() []*Plugin
+	InstallPlugin(plugin *Plugin) error
+	UnInstallPlugin(plugin *Plugin) error
+}
+
+type Plugin struct {
+	Name      string
+	Installed bool
+	Data      string
+	Game      *game.Game `json:"-"`
 }
 
 type FollowGameOptions struct {

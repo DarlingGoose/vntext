@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/game"
 )
 
@@ -77,6 +78,9 @@ func TestPluginSourceLogsSpeakerAndVoice(t *testing.T) {
 		"header += \"[voice:\" + voice + \"]\";",
 		"AudioManager.playSe",
 		"AudioManager.playVoice",
+		"function rememberWindowText(text, sourceWindow)",
+		"Window_Base.prototype.drawText",
+		"Window_Base.prototype.drawTextEx",
 	}
 
 	for _, snippet := range required {
@@ -94,6 +98,121 @@ func TestSetCustomPluginOverridesInstalledSource(t *testing.T) {
 	if got := eng.GetDefaultPlugin(); got != "// custom plugin" {
 		t.Fatalf("GetDefaultPlugin() = %q", got)
 	}
+}
+
+func TestOllamaTranslatePluginSourceHooksReplacementText(t *testing.T) {
+	plugin := New().GetOllamaTranslatePlugin()
+	required := []string{
+		"const PLUGIN_NAME = \"WGLOllamaTranslate\";",
+		"XMLHttpRequest",
+		"xhr.open(\"POST\", config.endpoint, false)",
+		"Game_Message.prototype.add",
+		"Game_Message.prototype.setChoices",
+		"Window_Base.prototype.drawText",
+		"Window_Base.prototype.drawTextEx",
+		"Window_Options.prototype.addGeneralOptions",
+		"Window_MenuCommand.prototype.addOriginalCommands",
+		"Scene_Menu.prototype.commandWGLOllamaTranslate",
+		"openConfig: openConfigPrompts",
+		"window.__wglOllamaTranslate",
+	}
+
+	for _, snippet := range required {
+		if !strings.Contains(plugin, snippet) {
+			t.Fatalf("Ollama plugin missing snippet: %s", snippet)
+		}
+	}
+}
+
+func TestGetPluginsListsAvailableRPGMakerPlugins(t *testing.T) {
+	plugins := New().GetPlugins()
+	names := map[string]bool{}
+	for _, plugin := range plugins {
+		names[plugin.Name] = true
+		if plugin.Installed {
+			t.Fatalf("GetPlugins() should list available plugins, not mark them installed without a game")
+		}
+	}
+
+	for _, name := range []string{"WGLClipboardText", "WGLOllamaTranslate"} {
+		if !names[name] {
+			t.Fatalf("GetPlugins() missing %s", name)
+		}
+	}
+}
+
+func TestInstallOllamaTranslateHookWritesSeparatePlugin(t *testing.T) {
+	root := makeRPGMakerProject(t)
+	eng := New()
+	g := &game.Game{
+		GamePath:   root,
+		WorkingDir: root,
+		Executable: filepath.Join(root, "Game.exe"),
+	}
+
+	if err := eng.InstallOllamaTranslateHook(g, true); err != nil {
+		t.Fatalf("InstallOllamaTranslateHook() error = %v", err)
+	}
+
+	pluginPath := filepath.Join(root, "js", "plugins", "WGLOllamaTranslate.js")
+	data, err := os.ReadFile(pluginPath)
+	if err != nil {
+		t.Fatalf("read installed plugin: %v", err)
+	}
+	if !strings.Contains(string(data), "WGLOllamaTranslate") {
+		t.Fatalf("installed plugin missing plugin name")
+	}
+
+	configs, _, _, err := readPluginConfigs(filepath.Join(root, "js", "plugins.js"))
+	if err != nil {
+		t.Fatalf("read plugins.js: %v", err)
+	}
+	for _, config := range configs {
+		if config.Name == "WGLOllamaTranslate" {
+			if !config.Status {
+				t.Fatalf("expected WGLOllamaTranslate to be enabled")
+			}
+			if config.Parameters["Endpoint"] != "http://127.0.0.1:11434/api/generate" {
+				t.Fatalf("unexpected Endpoint parameter: %#v", config.Parameters["Endpoint"])
+			}
+			if config.Parameters["Show Menu Command"] != "true" {
+				t.Fatalf("unexpected Show Menu Command parameter: %#v", config.Parameters["Show Menu Command"])
+			}
+			return
+		}
+	}
+	t.Fatalf("WGLOllamaTranslate was not added to plugins.js")
+}
+
+func TestInstallPluginInstallsOllamaTranslateAlias(t *testing.T) {
+	root := makeRPGMakerProject(t)
+	eng := New()
+	g := &game.Game{
+		GamePath:   root,
+		WorkingDir: root,
+		Executable: filepath.Join(root, "Game.exe"),
+	}
+
+	if err := eng.InstallPlugin(&engine.Plugin{
+		Name: "rpgmaker-ollama-trasklate",
+		Game: g,
+	}); err != nil {
+		t.Fatalf("InstallPlugin() error = %v", err)
+	}
+
+	configs, _, _, err := readPluginConfigs(filepath.Join(root, "js", "plugins.js"))
+	if err != nil {
+		t.Fatalf("read plugins.js: %v", err)
+	}
+	for _, config := range configs {
+		if config.Name == "WGLOllamaTranslate" {
+			if !config.Status {
+				t.Fatalf("expected WGLOllamaTranslate to be enabled")
+			}
+			return
+		}
+	}
+	t.Fatalf("WGLOllamaTranslate was not added to plugins.js")
 }
 
 //func TestInstallGameDerivesNameFromExeWhenProjectRootIsWWW(t *testing.T) {

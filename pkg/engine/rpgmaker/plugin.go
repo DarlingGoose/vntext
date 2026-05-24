@@ -36,17 +36,42 @@ func readPluginConfigs(pluginsConfigPath string) ([]pluginConfig, string, string
 }
 
 func ensurePluginEnabled(pluginsConfigPath, name string) error {
+	return ensurePluginConfigured(pluginsConfigPath, pluginConfig{
+		Name:        name,
+		Status:      true,
+		Description: "WGL clipboard/dialogue text hook",
+		Parameters:  map[string]any{},
+	})
+}
+
+func ensurePluginConfigured(pluginsConfigPath string, desired pluginConfig) error {
 	configs, prefix, suffix, err := readPluginConfigs(pluginsConfigPath)
 	if err != nil {
 		return err
 	}
 
+	desired.Name = strings.TrimSpace(desired.Name)
+	if desired.Name == "" {
+		return fmt.Errorf("plugin name is required")
+	}
+	if desired.Parameters == nil {
+		desired.Parameters = map[string]any{}
+	}
+
 	found := false
 	for i := range configs {
-		if strings.TrimSpace(configs[i].Name) == name {
-			configs[i].Status = true
+		if strings.TrimSpace(configs[i].Name) == desired.Name {
+			configs[i].Status = desired.Status
+			if strings.TrimSpace(desired.Description) != "" {
+				configs[i].Description = desired.Description
+			}
 			if configs[i].Parameters == nil {
 				configs[i].Parameters = map[string]any{}
+			}
+			for key, value := range desired.Parameters {
+				if _, ok := configs[i].Parameters[key]; !ok {
+					configs[i].Parameters[key] = value
+				}
 			}
 			found = true
 			break
@@ -54,12 +79,7 @@ func ensurePluginEnabled(pluginsConfigPath, name string) error {
 	}
 
 	if !found {
-		configs = append(configs, pluginConfig{
-			Name:        name,
-			Status:      true,
-			Description: "WGL clipboard/dialogue text hook",
-			Parameters:  map[string]any{},
-		})
+		configs = append(configs, desired)
 	}
 
 	encoded, err := json.MarshalIndent(configs, "", "  ")

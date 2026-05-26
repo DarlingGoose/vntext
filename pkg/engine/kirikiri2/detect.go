@@ -110,11 +110,15 @@ func detectKiriKiriProfile(root string, recursive bool) KiriKiriProfile {
 func canExtractXP3(path string) bool {
 	for _, encryptionType := range supportedXP3ExtractionTypes() {
 		check, err := xp3.CanExtract(path, encryptionType)
-		if err == nil && check.Extractable {
+		if err == nil && (check.Extractable || canExtractProtectedXP3(check)) {
 			return true
 		}
 	}
 	return false
+}
+
+func canExtractProtectedXP3(check xp3.Extractability) bool {
+	return check.Protected && !check.Encrypted && len(check.UnsafePaths) == 0
 }
 
 func hasLikelyKiriKiriExe(root string, recursive bool) bool {

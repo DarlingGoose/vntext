@@ -157,10 +157,15 @@ func extractXP3ForPatch(ctx context.Context, plan *xp3PatchPlan) error {
 
 	var extractErr error
 	for _, encryptionType := range supportedXP3ExtractionTypes() {
+		if err := resetPatchWorkDir(plan.WorkDir); err != nil {
+			return err
+		}
+
 		err = reader.ExtractAll(plan.WorkDir, xp3.ExtractOptions{
-			EncryptionType: encryptionType,
-			Descramble:     true,
-			Logger:         slog.Default(),
+			EncryptionType:  encryptionType,
+			Descramble:      true,
+			Logger:          slog.Default(),
+			SkipUnsafePaths: true,
 		})
 		if err == nil {
 			if encryptionType != xp3.EncryptionNone {
@@ -168,14 +173,34 @@ func extractXP3ForPatch(ctx context.Context, plan *xp3PatchPlan) error {
 			}
 			return nil
 		}
-		if extractErr == nil || encryptionType == xp3.EncryptionNone {
+		if extractErr == nil || encryptionType != xp3.EncryptionNone {
 			extractErr = err
 		}
 	}
 
-	// Some archives need omit-path-terminator behavior on repack, not usually
-	// on extract. Keep the failed extraction error clear for now.
+	if err := resetPatchWorkDir(plan.WorkDir); err != nil {
+		return err
+	}
+	if err := reader.ExtractAll(plan.WorkDir, xp3.ExtractOptions{
+		Raw:             true,
+		Logger:          slog.Default(),
+		SkipUnsafePaths: true,
+	}); err == nil {
+		slog.InfoContext(ctx, "extracted XP3 archive as raw data", "archive", plan.SourceArchive)
+		return nil
+	}
+
 	return fmt.Errorf("extract xp3 %s: %w", plan.SourceArchive, extractErr)
+}
+
+func resetPatchWorkDir(dir string) error {
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("clear temp hook dir: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create temp hook dir: %w", err)
+	}
+	return nil
 }
 
 func supportedXP3ExtractionTypes() []string {
@@ -196,8 +221,8 @@ func detectExtractedLayout(plan *xp3PatchPlan) error {
 	}
 
 	for _, dir := range candidates {
-		startup := filepath.Join(dir, startupFileName)
-		if util.IsFile(startup) {
+		startup, ok := findCaseInsensitiveFile(dir, startupFileName)
+		if ok {
 			plan.DataDir = dir
 			plan.StartupPath = startup
 			plan.LoggerPath = filepath.Join(dir, textLoggerFileName)
@@ -228,6 +253,24 @@ func detectExtractedLayout(plan *xp3PatchPlan) error {
 	plan.LoggerPath = filepath.Join(plan.DataDir, textLoggerFileName)
 
 	return nil
+}
+
+func findCaseInsensitiveFile(dir string, name string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.EqualFold(entry.Name(), name) {
+			return filepath.Join(dir, entry.Name()), true
+		}
+	}
+
+	return "", false
 }
 
 func writeTextLogger(pluginData, loggerPath string, startupPath string, gameRoot string) error {

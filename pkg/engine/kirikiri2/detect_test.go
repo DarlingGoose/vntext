@@ -80,6 +80,22 @@ func TestIsEngineReturnsFalseWhenXP3CannotExtract(t *testing.T) {
 	}
 }
 
+func TestCanExtractProtectedXP3AllowsMarkerOnlyArchives(t *testing.T) {
+	check := xp3.Extractability{
+		Protected:      true,
+		ProtectedPaths: []string{"This is a protected archive.txt"},
+	}
+
+	if !canExtractProtectedXP3(check) {
+		t.Fatalf("protected marker-only archive should be usable")
+	}
+
+	check.Encrypted = true
+	if canExtractProtectedXP3(check) {
+		t.Fatalf("protected encrypted archive without a matching encryption type should not be usable")
+	}
+}
+
 func writeKiriTestFile(t *testing.T, path, content string) {
 	t.Helper()
 

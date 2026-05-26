@@ -112,6 +112,25 @@ func TestInstallXP3TextHookExtractsEncryptedDescrambledArchive(t *testing.T) {
 	}
 }
 
+func TestDetectExtractedLayoutFindsUppercaseStartup(t *testing.T) {
+	root := t.TempDir()
+	startup := filepath.Join(root, "STARTUP.TJS")
+	if err := os.WriteFile(startup, []byte(`Scripts.execStorage("system/Initialize.tjs");`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := xp3PatchPlan{
+		SourceArchive: filepath.Join(root, "data.xp3"),
+		WorkDir:       root,
+	}
+	if err := detectExtractedLayout(&plan); err != nil {
+		t.Fatalf("detectExtractedLayout() error = %v", err)
+	}
+	if plan.StartupPath != startup {
+		t.Fatalf("StartupPath = %q, want %q", plan.StartupPath, startup)
+	}
+}
+
 func TestTextLoggerDoesNotInstallChoiceAndMenuTagHooks(t *testing.T) {
 	tags := []string{
 		"button",

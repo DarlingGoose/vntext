@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/DarlingGoose/krkrxp3/pkg/xp3"
 	"github.com/DarlingGoose/vntext/pkg/app"
@@ -66,6 +67,48 @@ func TestInstallXP3TextHookDetectsStartupAfterExtract(t *testing.T) {
 	}
 	if g.TextHookLogFile != filepath.Join(root, "vntext.log") {
 		t.Fatalf("TextHookLogFile = %q", g.TextHookLogFile)
+	}
+}
+
+func TestInstallXP3TextHookExtractsEncryptedDescrambledArchive(t *testing.T) {
+	root := t.TempDir()
+	startupSource := `Scripts.execStorage("system/Initialize.tjs");` + "\r\n"
+
+	writer, err := xp3.CreateWriter(filepath.Join(root, "data.xp3"))
+	if err != nil {
+		t.Fatalf("create xp3 writer: %v", err)
+	}
+	if err := writer.Add(startupFileName, scrambleKiriKiriTextMode0(startupSource), "neko_vol0", 0); err != nil {
+		t.Fatalf("add encrypted startup: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close xp3 writer: %v", err)
+	}
+
+	g := &game.Game{}
+	e := New()
+	if err := e.installXP3TextHook(context.Background(), g, root); err != nil {
+		t.Fatalf("installXP3TextHook() error = %v", err)
+	}
+
+	reader, err := xp3.OpenReader(filepath.Join(root, wglPatchXP3Name))
+	if err != nil {
+		t.Fatalf("open patch xp3: %v", err)
+	}
+	defer reader.Close()
+
+	outDir := filepath.Join(root, "out")
+	if err := reader.ExtractAll(outDir, xp3.ExtractOptions{}); err != nil {
+		t.Fatalf("extract patch xp3: %v", err)
+	}
+
+	patchedStartup, err := os.ReadFile(filepath.Join(outDir, startupFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := startupSource + `Scripts.execStorage("text_logger.tjs");` + "\r\n"
+	if got := string(patchedStartup); got != want {
+		t.Fatalf("startup.tjs mismatch:\n%s", got)
 	}
 }
 
@@ -190,4 +233,21 @@ func TestCachedKiriKiriArchiveDataDirReusesCompletedExtraction(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cacheDir, "."+app.Name()+"-complete")); err != nil {
 		t.Fatalf("cache marker missing: %v", err)
 	}
+}
+
+func scrambleKiriKiriTextMode0(text string) []byte {
+	var utf16Data []byte
+	for _, r := range utf16.Encode([]rune(text)) {
+		utf16Data = append(utf16Data, byte(r), byte(r>>8))
+	}
+	for i := 0; i < len(utf16Data); i += 2 {
+		if utf16Data[i+1] == 0 && utf16Data[i] < 0x20 {
+			continue
+		}
+		utf16Data[i+1] ^= utf16Data[i] & 0xFE
+		utf16Data[i] ^= 1
+	}
+
+	out := []byte{0xFE, 0xFE, 0, 0xFF, 0xFE}
+	return append(out, utf16Data...)
 }

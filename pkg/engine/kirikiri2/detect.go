@@ -56,7 +56,7 @@ func detectKiriKiriProfile(root string, recursive bool) KiriKiriProfile {
 			p.HasTJS = true
 		case ".xp3":
 			p.HasXP3 = true
-			if check, err := xp3.CanExtract(path, xp3.EncryptionNone); err == nil && check.Extractable {
+			if canExtractXP3(path) {
 				p.HasExtractableXP3 = true
 			}
 		}
@@ -105,6 +105,16 @@ func detectKiriKiriProfile(root string, recursive bool) KiriKiriProfile {
 
 	p.Reason = strings.Join(reasons, ", ")
 	return p
+}
+
+func canExtractXP3(path string) bool {
+	for _, encryptionType := range supportedXP3ExtractionTypes() {
+		check, err := xp3.CanExtract(path, encryptionType)
+		if err == nil && check.Extractable {
+			return true
+		}
+	}
+	return false
 }
 
 func hasLikelyKiriKiriExe(root string, recursive bool) bool {

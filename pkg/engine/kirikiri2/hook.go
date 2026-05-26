@@ -155,17 +155,37 @@ func extractXP3ForPatch(ctx context.Context, plan *xp3PatchPlan) error {
 	}
 	defer reader.Close()
 
-	// First try normal extraction.
-	err = reader.ExtractAll(plan.WorkDir, xp3.ExtractOptions{
-		Logger: slog.Default(),
-	})
-	if err == nil {
-		return nil
+	var extractErr error
+	for _, encryptionType := range supportedXP3ExtractionTypes() {
+		err = reader.ExtractAll(plan.WorkDir, xp3.ExtractOptions{
+			EncryptionType: encryptionType,
+			Descramble:     true,
+			Logger:         slog.Default(),
+		})
+		if err == nil {
+			if encryptionType != xp3.EncryptionNone {
+				slog.InfoContext(ctx, "extracted encrypted XP3 archive", "archive", plan.SourceArchive, "encryption", encryptionType)
+			}
+			return nil
+		}
+		if extractErr == nil || encryptionType == xp3.EncryptionNone {
+			extractErr = err
+		}
 	}
 
 	// Some archives need omit-path-terminator behavior on repack, not usually
 	// on extract. Keep the failed extraction error clear for now.
-	return fmt.Errorf("extract xp3 %s: %w", plan.SourceArchive, err)
+	return fmt.Errorf("extract xp3 %s: %w", plan.SourceArchive, extractErr)
+}
+
+func supportedXP3ExtractionTypes() []string {
+	types := []string{xp3.EncryptionNone}
+	for _, encryptionType := range xp3.EncryptionTypes() {
+		if encryptionType != xp3.EncryptionNone {
+			types = append(types, encryptionType)
+		}
+	}
+	return types
 }
 
 func detectExtractedLayout(plan *xp3PatchPlan) error {

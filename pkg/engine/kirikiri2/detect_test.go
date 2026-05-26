@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/DarlingGoose/krkrxp3/pkg/xp3"
 )
 
 func TestIsEngineDirectExeDoesNotUseNestedFilesInParent(t *testing.T) {
@@ -40,6 +42,28 @@ func TestIsEngineDirectExeUsesSiblingKiriKiriFiles(t *testing.T) {
 	eng := New()
 	if !eng.IsEngine(exe) {
 		t.Fatalf("expected direct exe with sibling KiriKiri files to be detected")
+	}
+}
+
+func TestIsEngineDirectExeUsesEncryptedSiblingXP3(t *testing.T) {
+	root := t.TempDir()
+	exe := filepath.Join(root, "Game.exe")
+	writeKiriTestFile(t, exe, "")
+
+	writer, err := xp3.CreateWriter(filepath.Join(root, "data.xp3"))
+	if err != nil {
+		t.Fatalf("create xp3 writer: %v", err)
+	}
+	if err := writer.Add(startupFileName, scrambleKiriKiriTextMode0(`Scripts.execStorage("system/Initialize.tjs");`), "neko_vol0", 0); err != nil {
+		t.Fatalf("add encrypted startup: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close xp3 writer: %v", err)
+	}
+
+	eng := New()
+	if !eng.IsEngine(exe) {
+		t.Fatalf("expected direct exe with encrypted sibling KiriKiri XP3 to be detected")
 	}
 }
 

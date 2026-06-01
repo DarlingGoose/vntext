@@ -3,7 +3,7 @@ module github.com/DarlingGoose/vntext
 go 1.26.2
 
 require (
-	github.com/DarlingGoose/gr v0.0.23
+	github.com/DarlingGoose/gr v0.0.24
 	github.com/DarlingGoose/krkrxp3 v0.0.0-20260526144524-1e978a8cd932
 	github.com/DarlingGoose/tr v0.0.3
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -25,7 +25,7 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
-	github.com/mattn/go-runewidth v0.0.23 // indirect
+	github.com/mattn/go-runewidth v0.0.24 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect

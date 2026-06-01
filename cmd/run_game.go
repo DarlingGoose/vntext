@@ -21,6 +21,7 @@ import (
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/gameConfig"
+	"github.com/DarlingGoose/vntext/pkg/util"
 
 	"github.com/spf13/cobra"
 )
@@ -43,6 +44,9 @@ type RunGameOptions struct {
 	Sync    bool
 	Follow  bool
 	LogFile string
+
+	RunnerLog     bool
+	RunnerLogFile string
 }
 
 func NewRunGameCommand() *cobra.Command {
@@ -107,6 +111,9 @@ func NewRunGameCommand() *cobra.Command {
 			if status != nil && status.PID > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), " pid=%d", status.PID)
 			}
+			if status != nil && strings.TrimSpace(status.RunnerLogFile) != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), " runner_log=%s", status.RunnerLogFile)
+			}
 			fmt.Fprintln(cmd.OutOrStdout())
 
 			if opts.Sync {
@@ -168,6 +175,20 @@ func NewRunGameCommand() *cobra.Command {
 		"override text hook log file for engines that follow a log file",
 	)
 
+	cmd.Flags().BoolVar(
+		&opts.RunnerLog,
+		"runner-log",
+		false,
+		"write Wine/gamescope stdout and stderr to the default runner log file",
+	)
+
+	cmd.Flags().StringVar(
+		&opts.RunnerLogFile,
+		"runner-log-file",
+		"",
+		"write Wine/gamescope stdout and stderr to this file",
+	)
+
 	return cmd
 }
 func init() {
@@ -192,6 +213,13 @@ func RunSelectedGame(ctx context.Context, g *game.Game, opts RunGameOptions) (*G
 
 	copy := *g
 	copy.RunnerConfig.Background = opts.Background || opts.Sync
+	runnerLogFile, err := runnerLogPath(&copy, opts)
+	if err != nil {
+		return nil, err
+	}
+	if runnerLogFile != "" {
+		copy.RunnerConfig.LogFile = runnerLogFile
+	}
 	proc, err := eng.RunGame(ctx, &copy)
 	if err != nil {
 		return nil, err
@@ -200,12 +228,38 @@ func RunSelectedGame(ctx context.Context, g *game.Game, opts RunGameOptions) (*G
 	if status == nil {
 		status = &GameProcessStatus{Status: processStatusExited}
 	}
+	status.RunnerLogFile = runnerLogFile
 	status.engine = eng
 	status.stop = func() error {
 		_, err := eng.StopGame(ctx, proc)
 		return err
 	}
 	return status, nil
+}
+
+func runnerLogPath(g *game.Game, opts RunGameOptions) (string, error) {
+	path := strings.TrimSpace(opts.RunnerLogFile)
+	if path == "" && opts.RunnerLog {
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			return "", fmt.Errorf("locate user cache dir: %w", err)
+		}
+
+		name := "game"
+		if g != nil && strings.TrimSpace(g.Name) != "" {
+			name = util.SanitizeName(g.Name)
+		}
+		path = filepath.Join(cacheDir, app.Name(), "logs", name+".runner.log")
+	}
+	if path == "" {
+		return "", nil
+	}
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("create runner log dir: %w", err)
+		}
+	}
+	return path, nil
 }
 
 func processStatusFromGR(proc *gr.Process) *GameProcessStatus {
@@ -240,6 +294,8 @@ type GameProcessStatus struct {
 	PID     int
 	Message string
 	Status  int
+
+	RunnerLogFile string
 
 	proc   *gr.Process
 	engine engine.EngineV2

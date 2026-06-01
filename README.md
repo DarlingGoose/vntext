@@ -26,6 +26,22 @@ Run tests:
 go test ./...
 ```
 
+## Runtime Dependencies
+
+`vntext` launches Windows games through Wine and, optionally, gamescope. Install the runner tools before running games:
+
+```sh
+sudo pacman -S --needed wine winetricks gamescope
+```
+
+Kirikiri2 and other VN engines may play WMV/DirectShow movies through Wine's GStreamer backend. Missing GStreamer codecs can leave the game on a black screen while the process is still running. On Arch, install the common codec plugins:
+
+```sh
+sudo pacman -S --needed gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly
+```
+
+If a movie scene still hangs, rerun with Wine/quartz logging and check for `wmvcore:init_stream Failed to connect parser`; that usually means the Wine prefix or host GStreamer codec stack still cannot decode the movie.
+
 ## Commands
 
 ### Install A Game

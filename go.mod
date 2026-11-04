@@ -7,6 +7,7 @@ require (
 	github.com/DarlingGoose/krkrxp3 v0.0.0-20260526144524-1e978a8cd932
 	github.com/DarlingGoose/tr v0.0.3
 	github.com/charmbracelet/bubbletea v1.3.10
+	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/text v0.37.0
 )

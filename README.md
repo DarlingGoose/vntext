@@ -11,6 +11,7 @@ The default program/config name is `vntext`. Code should use `pkg/app.Name()` in
 - Save per-game runner options, Wine options, gamescope options, and text hook filters.
 - Install engine-specific text hooks.
 - Follow extracted game text through `EngineV2.FollowGameText`.
+- Publish followed text to a local or remote JPN Learning live capture session.
 - Support Textractor/TextReactor for games without native file hooks.
 - Preserve Japanese file encodings and newlines when patching scripts.
 
@@ -120,6 +121,83 @@ Command flow:
 6. On shutdown, call `EngineV2.StopGame(ctx, proc)`.
 
 For Wine games, `gr.Process.WinePID` is used when available so `--sync` follows the actual Wine game process instead of only the host Wine launcher.
+
+### Live Capture
+
+Publish the text that `--follow` already prints to a JPN Learning live session,
+so it appears on the `/live` page as it happens. Every line is also saved into
+the game's project as a draft entry by default, ready for the same decode and
+translation workflow as books and manga.
+
+One-time setup with the OAuth client credentials used by the API tooling:
+
+```sh
+export JPN_LEARNING_URL=https://jpn-learning-api.darlinggoose.com/token
+export JPN_LEARNING_CLIENT_ID=...
+export JPN_LEARNING_CLIENT_SECRET=...
+vntext live login          # exchange credentials, mint and cache a capture token
+vntext live status         # is a publisher or a watcher connected?
+```
+
+`JPN_LEARNING_URL` may be the token endpoint (`/token` or `/api/token`) or the
+API base; vntext resolves and probes the base once and prints what it chose.
+`JPN_LEARNING_WS` overrides the capture socket when it is not the preset's
+(the REST base and the socket can live on different hosts; see below).
+Without OAuth credentials, use `vntext live login --token kbc_…`, or let the
+first `--live` run prompt for a token created on the Live page. The token is
+cached in `~/.config/vntext/live.json` with mode `0600`; environment variables
+take precedence over the file.
+
+Run a game with capture:
+
+```sh
+vntext run-game "Game Name" --sync --follow --live
+vntext run-game "Game Name" --sync --follow --live --live-endpoint local
+vntext run-game "Game Name" --sync --follow --live --live-game-name "Fate/stay night"
+```
+
+| Flag | Meaning |
+|---|---|
+| `--live` | enable publishing; requires `--follow` |
+| `--live-endpoint` | `local` (`127.0.0.1:18080`), `remote`, or an http(s) base URL |
+| `--live-api` | explicit API base, skipping endpoint discovery |
+| `--live-ws` | explicit capture socket URL; env `JPN_LEARNING_WS` |
+| `--live-token` | `kbc_…` capture token instead of the cached one |
+| `--live-game-name` | project/game name; defaults to the installed name |
+| `--live-kind` | default kind: `dialogue`, `narration`, `choice`, `system` |
+| `--live-device` | device label shown on the live page |
+| `--live-no-auto-save` | stream lines without creating project entries |
+| `--live-dry-run` | print the frames instead of connecting |
+| `--live-no-input` | never prompt for a token (scripts) |
+
+The REST API and the capture socket are separate endpoints. The website's
+`/api/` prefix proxies plain HTTP only, so a URL like
+`https://jpn-learning.darlinggoose.com/api` can fetch tokens and status while
+never delivering a websocket frame. The presets therefore carry both URLs:
+
+| Endpoint | REST API | Capture socket |
+|---|---|---|
+| `local` | `http://127.0.0.1:18080` | `ws://127.0.0.1:18080/live/capture` |
+| `remote` | `https://jpn-learning-api.darlinggoose.com` | `wss://jpn-learning-api.darlinggoose.com/live/capture` |
+
+`vntext live doctor` prints the resolved pair and opens the socket with a
+test handshake that creates no session, so a broken proxy shows up as
+`socket failed` with the URL named. Point `--live-ws` / `JPN_LEARNING_WS` at
+another socket when the API lives behind a different host.
+
+Capture is best-effort and never blocks the game: lines are queued with a
+bounded buffer, the client pings every 20 seconds, and a dropped connection is
+re-established with the same session (unacknowledged lines are resent and
+deduplicated by the server). A restart within 12 hours resumes the section
+instead of starting a new one.
+
+`live pipe` publishes newline-delimited text from stdin, which is useful for
+testing a hook or feeding another extractor:
+
+```sh
+printf 'こんにちは\n「行くぞ」\n' | vntext live pipe --game "Test"
+textractor-cli | vntext live pipe --game "Game Name" --speaker 士郎
+```
 
 ### Manage Runner Config
 

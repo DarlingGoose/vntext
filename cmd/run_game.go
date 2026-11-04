@@ -21,6 +21,7 @@ import (
 	"github.com/DarlingGoose/vntext/pkg/engine"
 	"github.com/DarlingGoose/vntext/pkg/game"
 	"github.com/DarlingGoose/vntext/pkg/gameConfig"
+	"github.com/DarlingGoose/vntext/pkg/liveclient"
 	"github.com/DarlingGoose/vntext/pkg/util"
 
 	"github.com/spf13/cobra"
@@ -47,6 +48,23 @@ type RunGameOptions struct {
 
 	RunnerLog     bool
 	RunnerLogFile string
+
+	Live LiveCaptureOptions
+}
+
+// LiveCaptureOptions controls `run-game --live`.
+type LiveCaptureOptions struct {
+	Enabled    bool
+	Endpoint   string
+	API        string
+	WS         string
+	Token      string
+	GameName   string
+	Kind       string
+	Device     string
+	NoAutoSave bool
+	DryRun     bool
+	NoInput    bool
 }
 
 func NewRunGameCommand() *cobra.Command {
@@ -63,6 +81,10 @@ func NewRunGameCommand() *cobra.Command {
 
 			if opts.Follow && !opts.Sync {
 				return errors.New("--follow requires --sync")
+			}
+
+			if opts.Live.Enabled && !opts.Follow {
+				return errors.New("--live requires --follow")
 			}
 
 			games, err := gameConfig.LoadInstalledGames(opts.ConfigDir, DefaultGameConfigDir())
@@ -95,6 +117,15 @@ func NewRunGameCommand() *cobra.Command {
 				}
 				if selected == nil {
 					return nil
+				}
+			}
+
+			if opts.Live.Enabled && !opts.Live.DryRun {
+				// Resolve credentials before launching: a prompt is easier to
+				// answer now than over a running game, and a setup error should
+				// not leave a game running with capture silently disabled.
+				if err := prepareLiveCapture(cmd.Context(), opts, cmd.OutOrStdout()); err != nil {
+					return err
 				}
 			}
 
@@ -187,6 +218,83 @@ func NewRunGameCommand() *cobra.Command {
 		"runner-log-file",
 		"",
 		"write Wine/gamescope stdout and stderr to this file",
+	)
+
+	cmd.Flags().BoolVar(
+		&opts.Live.Enabled,
+		"live",
+		false,
+		"publish followed text to a JPN Learning live session",
+	)
+
+	cmd.Flags().StringVar(
+		&opts.Live.Endpoint,
+		"live-endpoint",
+		"",
+		"live API preset: local, remote, or an http(s) base URL",
+	)
+
+	cmd.Flags().StringVar(
+		&opts.Live.API,
+		"live-api",
+		"",
+		"explicit live API base URL (skips endpoint discovery)",
+	)
+
+	cmd.Flags().StringVar(
+		&opts.Live.WS,
+		"live-ws",
+		"",
+		"capture websocket URL; defaults to the endpoint preset's; env JPN_LEARNING_WS",
+	)
+
+	cmd.Flags().StringVar(
+		&opts.Live.Token,
+		"live-token",
+		"",
+		"capture token (kbc_…); env JPN_LEARNING_CAPTURE_TOKEN",
+	)
+
+	cmd.Flags().StringVar(
+		&opts.Live.GameName,
+		"live-game-name",
+		"",
+		"game name used for the live project; defaults to the installed name",
+	)
+
+	cmd.Flags().StringVar(
+		&opts.Live.Kind,
+		"live-kind",
+		"",
+		"default line kind: dialogue, narration, choice or system",
+	)
+
+	cmd.Flags().StringVar(
+		&opts.Live.Device,
+		"live-device",
+		"",
+		"device label shown on the live page; defaults to the hostname",
+	)
+
+	cmd.Flags().BoolVar(
+		&opts.Live.NoAutoSave,
+		"live-no-auto-save",
+		false,
+		"stream lines without saving them as project entries",
+	)
+
+	cmd.Flags().BoolVar(
+		&opts.Live.DryRun,
+		"live-dry-run",
+		false,
+		"print live frames instead of connecting",
+	)
+
+	cmd.Flags().BoolVar(
+		&opts.Live.NoInput,
+		"live-no-input",
+		false,
+		"never prompt for a capture token",
 	)
 
 	return cmd
@@ -499,6 +607,27 @@ func FollowGameText(ctx context.Context, out io.Writer, g *game.Game, status *Ga
 		return err
 	}
 
+	var publisher *liveclient.Publisher
+	if opts.Live.Enabled {
+		publisher, err = newLivePublisher(ctx, &followGame, opts, out)
+		if err != nil {
+			// Capture is optional: say why, keep following the game.
+			fmt.Fprintf(out, "live capture disabled: %v\n", err)
+			publisher = nil
+		} else if publisher != nil {
+			defer func() {
+				closeCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				if err := publisher.Close(closeCtx); err != nil {
+					fmt.Fprintf(out, "live capture: %v\n", err)
+				}
+				stats := publisher.Stats()
+				fmt.Fprintf(out, "live capture finished: %d sent, %d acknowledged, %d dropped\n",
+					stats.Sent, stats.Acked, stats.Dropped)
+			}()
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -510,7 +639,38 @@ func FollowGameText(ctx context.Context, out io.Writer, g *game.Game, status *Ga
 			if text := formatFollowLine(line); text != "" {
 				fmt.Fprintln(out, text)
 			}
+			if publisher != nil {
+				publisher.Offer(toLiveLine(line, opts.Live.Kind))
+			}
 		}
+	}
+}
+
+// toLiveLine maps the engine's line into the live protocol's line.
+func toLiveLine(line engine.Line, kind string) liveclient.Line {
+	text := strings.TrimSpace(line.Text)
+	if text == "" {
+		text = strings.TrimSpace(line.Raw)
+	}
+	speaker := strings.TrimSpace(line.Speaker)
+
+	switch strings.ToLower(speaker) {
+	case "system", "new session":
+		kind = "system"
+		speaker = ""
+	}
+
+	at := line.Time
+	if at.IsZero() {
+		at = time.Now()
+	}
+
+	return liveclient.Line{
+		Text:    text,
+		Speaker: speaker,
+		Kind:    kind,
+		At:      at,
+		Ref:     line.Hook,
 	}
 }
 
